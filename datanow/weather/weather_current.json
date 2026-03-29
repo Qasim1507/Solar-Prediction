@@ -1,0 +1,311 @@
+{
+    "air-temperature": {
+        "timestamp": "2026-03-04T09:35:00+08:00",
+        "readings": [
+            {
+                "station_id": "S107",
+                "value": 28.3
+            },
+            {
+                "station_id": "S24",
+                "value": 27.9
+            }
+        ]
+    },
+    "rainfall": {
+        "timestamp": "2026-03-04T09:30:00+08:00",
+        "readings": [
+            {
+                "station_id": "S77",
+                "value": 0
+            },
+            {
+                "station_id": "S216",
+                "value": 0
+            },
+            {
+                "station_id": "S109",
+                "value": 0
+            },
+            {
+                "station_id": "S117",
+                "value": 0
+            },
+            {
+                "station_id": "S217",
+                "value": 0
+            },
+            {
+                "station_id": "S218",
+                "value": 0
+            },
+            {
+                "station_id": "S64",
+                "value": 0
+            },
+            {
+                "station_id": "S90",
+                "value": 0
+            },
+            {
+                "station_id": "S208",
+                "value": 0
+            },
+            {
+                "station_id": "S201",
+                "value": 0
+            },
+            {
+                "station_id": "S50",
+                "value": 0
+            },
+            {
+                "station_id": "S220",
+                "value": 0
+            },
+            {
+                "station_id": "S213",
+                "value": 0
+            },
+            {
+                "station_id": "S107",
+                "value": 0
+            },
+            {
+                "station_id": "S215",
+                "value": 0
+            },
+            {
+                "station_id": "S222",
+                "value": 0
+            },
+            {
+                "station_id": "S120",
+                "value": 0
+            },
+            {
+                "station_id": "S221",
+                "value": 0
+            },
+            {
+                "station_id": "S33",
+                "value": 0
+            },
+            {
+                "station_id": "S229",
+                "value": 0
+            },
+            {
+                "station_id": "S228",
+                "value": 0
+            },
+            {
+                "station_id": "S71",
+                "value": 0
+            },
+            {
+                "station_id": "S43",
+                "value": 0
+            },
+            {
+                "station_id": "S211",
+                "value": 0
+            },
+            {
+                "station_id": "S66",
+                "value": 0
+            },
+            {
+                "station_id": "S112",
+                "value": 0
+            },
+            {
+                "station_id": "S07",
+                "value": 0
+            },
+            {
+                "station_id": "S226",
+                "value": 0
+            },
+            {
+                "station_id": "S40",
+                "value": 0
+            },
+            {
+                "station_id": "S223",
+                "value": 0
+            },
+            {
+                "station_id": "S108",
+                "value": 0
+            },
+            {
+                "station_id": "S113",
+                "value": 0
+            },
+            {
+                "station_id": "S44",
+                "value": 0
+            },
+            {
+                "station_id": "S119",
+                "value": 0
+            },
+            {
+                "station_id": "S35",
+                "value": 0
+            },
+            {
+                "station_id": "S203",
+                "value": 0
+            },
+            {
+                "station_id": "S94",
+                "value": 0
+            },
+            {
+                "station_id": "S06",
+                "value": 0
+            },
+            {
+                "station_id": "S78",
+                "value": 0
+            },
+            {
+                "station_id": "S106",
+                "value": 0
+            },
+            {
+                "station_id": "S81",
+                "value": 0
+            },
+            {
+                "station_id": "S111",
+                "value": 0
+            },
+            {
+                "station_id": "S900",
+                "value": 0
+            },
+            {
+                "station_id": "S102",
+                "value": 0
+            },
+            {
+                "station_id": "S60",
+                "value": 0
+            },
+            {
+                "station_id": "S84",
+                "value": 0
+            },
+            {
+                "station_id": "S79",
+                "value": 0
+            },
+            {
+                "station_id": "S92",
+                "value": 0
+            },
+            {
+                "station_id": "S214",
+                "value": 0
+            },
+            {
+                "station_id": "S88",
+                "value": 0
+            },
+            {
+                "station_id": "S123",
+                "value": 0
+            },
+            {
+                "station_id": "S115",
+                "value": 0
+            },
+            {
+                "station_id": "S24",
+                "value": 0
+            },
+            {
+                "station_id": "S69",
+                "value": 0
+            },
+            {
+                "station_id": "S08",
+                "value": 0
+            },
+            {
+                "station_id": "S116",
+                "value": 0
+            },
+            {
+                "station_id": "S230",
+                "value": 0
+            },
+            {
+                "station_id": "S104",
+                "value": 0
+            },
+            {
+                "station_id": "S210",
+                "value": 0
+            },
+            {
+                "station_id": "S227",
+                "value": 0
+            },
+            {
+                "station_id": "S219",
+                "value": 0
+            },
+            {
+                "station_id": "S209",
+                "value": 0
+            }
+        ]
+    },
+    "relative-humidity": {
+        "timestamp": "2026-03-04T09:35:00+08:00",
+        "readings": [
+            {
+                "station_id": "S107",
+                "value": 81.6
+            },
+            {
+                "station_id": "S24",
+                "value": 79.2
+            },
+            {
+                "station_id": "S104",
+                "value": 80.7
+            }
+        ]
+    },
+    "wind-direction": {
+        "timestamp": "2026-03-04T09:35:00+08:00",
+        "readings": [
+            {
+                "station_id": "S107",
+                "value": 307
+            },
+            {
+                "station_id": "S104",
+                "value": 353
+            }
+        ]
+    },
+    "wind-speed": {
+        "timestamp": "2026-03-04T09:35:00+08:00",
+        "readings": [
+            {
+                "station_id": "S107",
+                "value": 7.3
+            },
+            {
+                "station_id": "S104",
+                "value": 3.7
+            }
+        ]
+    }
+}
