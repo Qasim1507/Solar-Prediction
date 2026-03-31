@@ -1,19 +1,19 @@
 {
     "air-temperature": {
-        "timestamp": "2026-03-31T14:45:00+08:00",
+        "timestamp": "2026-03-31T22:50:00+08:00",
         "readings": [
             {
                 "station_id": "S107",
-                "value": 28.2
+                "value": 27.9
             },
             {
                 "station_id": "S24",
-                "value": 27.2
+                "value": 27.4
             }
         ]
     },
     "rainfall": {
-        "timestamp": "2026-03-31T14:40:00+08:00",
+        "timestamp": "2026-03-31T22:45:00+08:00",
         "readings": [
             {
                 "station_id": "S77",
@@ -266,33 +266,33 @@
         ]
     },
     "relative-humidity": {
-        "timestamp": "2026-03-31T14:45:00+08:00",
+        "timestamp": "2026-03-31T22:50:00+08:00",
         "readings": [
             {
                 "station_id": "S107",
-                "value": 74.4
+                "value": 85.7
             },
             {
                 "station_id": "S24",
-                "value": 81
+                "value": 82.9
             }
         ]
     },
     "wind-direction": {
-        "timestamp": "2026-03-31T14:45:00+08:00",
+        "timestamp": "2026-03-31T22:50:00+08:00",
         "readings": [
             {
                 "station_id": "S107",
-                "value": 322
+                "value": 318
             }
         ]
     },
     "wind-speed": {
-        "timestamp": "2026-03-31T14:45:00+08:00",
+        "timestamp": "2026-03-31T22:50:00+08:00",
         "readings": [
             {
                 "station_id": "S107",
-                "value": 5.8
+                "value": 3.6
             }
         ]
     }
