@@ -7,6 +7,8 @@ import time
 from PIL import Image
 from io import BytesIO
 import pytz
+import numpy as np
+from io import BytesIO
 
 class WeatherCollector:
     def __init__(self, save_dir="datanow/weather"):
@@ -60,63 +62,108 @@ class WeatherCollector:
 
 class SatelliteCollector:
     def __init__(self, save_dir="datanow/satellite"):
-        self.base_url = "https://himawari8-dl.nict.go.jp/himawari8/img/D531106/1d/550"
+        self.ftp_host = "ftp.ptree.jaxa.jp"
+        self.ftp_user = "nalawalaq_gmail.com"
+        self.ftp_pass = "SP+wari8"
         self.save_dir = save_dir
         os.makedirs(save_dir, exist_ok=True)
-    
+
     def get_latest_timestamp(self):
-        # Himawari-8 updates every 10 minutes, usually with a ~20-30 min delay
-        now = datetime.now(pytz.UTC)
-        delta = timedelta(minutes=30)
-        target = now - delta
-        # Round down to nearest 10 minutes
+        # Himawari updates every 10 min, ~20-30 min delay
+        now    = datetime.now(pytz.UTC)
+        target = now - timedelta(minutes=30)
         minute = target.minute - (target.minute % 10)
         target = target.replace(minute=minute, second=0, microsecond=0)
         return target
-    
+
     def fetch_image(self, date_time=None):
-        """
-        Fetch a specific tile (Row 1, Col 1) from the 4d (4x4 grid) level.
-        Singapore (1.35N, 103.8E) is typically in this tile for Himawari-8 (140.7E).
-        """
+        import ftplib
+        import netCDF4 as nc
+
         if date_time is None:
             date_time = self.get_latest_timestamp()
-        
-        # Ensure datetime is in UTC for API request
+
         if date_time.tzinfo is None:
             date_time = pytz.UTC.localize(date_time)
         else:
             date_time = date_time.astimezone(pytz.UTC)
-        
-        # Format: YYYY/MM/DD/HHmm00_R_C.png
-        level = "4d"
-        tile_r = 1
-        tile_c = 1
-        
-        date_str = date_time.strftime("%Y/%m/%d/%H%M00")
-        base = self.base_url.replace("1d", level) 
-        url = f"{base}/{date_str}_{tile_r}_{tile_c}.png"
-        
-        print(f"Fetching Satellite Tile (Singapore Focus)")
+
+        yyyymm = date_time.strftime("%Y%m")
+        dd     = date_time.strftime("%d")
+        hhmm   = date_time.strftime("%H%M")
+
+        # Singapore bounds with padding
+        sg_lat, sg_lon = 1.3521, 103.8198
+        pad = 5.0
+
+        print(f"Fetching Satellite Image via JAXA FTP")
         print(f"  Time (UTC): {date_time.strftime('%Y-%m-%d %H:%M:%S')}")
-        print(f"  URL: {url}")
-        
+
         try:
-            response = requests.get(url, verify=False, timeout=30)
-            
-            if response.status_code == 200:
-                img = Image.open(BytesIO(response.content))
-                
-                # Save
-                filename = f"{self.save_dir}/himawari_current.png"
-                img.save(filename)
-                print(f"✓ Satellite image saved to {filename}")
-                return filename
-            else:
-                print(f"✗ Failed to fetch image. Status: {response.status_code}")
+            ftp = ftplib.FTP(self.ftp_host, timeout=30)
+            ftp.login(self.ftp_user, self.ftp_pass)
+            ftp.cwd(f"/jma/netcdf/{yyyymm}/{dd}")
+            files = ftp.nlst()
+
+            # Find R21 full-disk file closest to target time
+            r21 = [f for f in files if "R21" in f and hhmm in f and "FLDK" in f]
+
+            # If exact time not found, find closest R21 file
+            if not r21:
+                r21_all = [f for f in files if "R21" in f and "FLDK" in f]
+                if not r21_all:
+                    print("  ⚠️  No R21 files found — trying adjacent times")
+                    ftp.quit()
+                    return None
+
+                # Pick closest by time
+                def file_time(f):
+                    t = f.split("_")[2] + f.split("_")[3]  # YYYYMMDD + HHMM
+                    return abs(int(f.split("_")[3]) - int(hhmm))
+
+                r21 = [sorted(r21_all, key=file_time)[0]]
+
+            target_file = r21[0]
+            print(f"  Downloading: {target_file}")
+
+            buf = BytesIO()
+            ftp.retrbinary(f"RETR {target_file}", buf.write)
+            ftp.quit()
+
+            # Parse NetCDF
+            buf.seek(0)
+            ds  = nc.Dataset("dummy", memory=buf.read())
+            lat = ds.variables["latitude"][:]
+            lon = ds.variables["longitude"][:]
+            alb = ds.variables["albedo_03"][:]
+
+            # Extract Singapore tile
+            lat_idx = np.where((lat >= sg_lat - pad) & (lat <= sg_lat + pad))[0]
+            lon_idx = np.where((lon >= sg_lon - pad) & (lon <= sg_lon + pad))[0]
+
+            if len(lat_idx) == 0 or len(lon_idx) == 0:
+                print("  ⚠️  Singapore not in coverage area")
                 return None
+
+            tile = alb[lat_idx[0]:lat_idx[-1]+1, lon_idx[0]:lon_idx[-1]+1]
+
+            # Handle masked/fill values
+            if hasattr(tile, 'filled'):
+                tile = tile.filled(0.0)
+            tile = np.clip(tile.astype(np.float32), 0, 1)
+
+            # Convert to RGB (replicate across 3 channels)
+            tile_rgb = np.stack([tile, tile, tile], axis=-1)  # (H, W, 3)
+
+            # Save as PNG
+            img = Image.fromarray((tile_rgb * 255).astype(np.uint8))
+            filename = f"{self.save_dir}/himawari_current.png"
+            img.save(filename)
+            print(f"✓ Satellite image saved to {filename} (shape: {tile.shape})")
+            return filename
+
         except Exception as e:
-            print(f"✗ Error fetching satellite image: {e}")
+            print(f"✗ Error fetching via FTP: {e}")
             return None
 
 

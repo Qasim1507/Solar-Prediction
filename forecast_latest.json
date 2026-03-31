@@ -1,0 +1,35 @@
+{
+  "forecast_time_sgt": "2026-03-31 14:00",
+  "forecasts": [
+    {
+      "horizon": "t+1h",
+      "time_sgt": "2026-03-31 15:00",
+      "ghi_forecast_wm2": 330.8,
+      "ghi_lower_90": 188.8,
+      "ghi_upper_90": 472.9,
+      "clearsky_wm2": 837.8
+    },
+    {
+      "horizon": "t+2h",
+      "time_sgt": "2026-03-31 16:00",
+      "ghi_forecast_wm2": 128.6,
+      "ghi_lower_90": 64.5,
+      "ghi_upper_90": 192.7,
+      "clearsky_wm2": 663.8
+    },
+    {
+      "horizon": "t+3h",
+      "time_sgt": "2026-03-31 17:00",
+      "ghi_forecast_wm2": 101.3,
+      "ghi_lower_90": 41.1,
+      "ghi_upper_90": 161.4,
+      "clearsky_wm2": 436.0
+    }
+  ],
+  "current_weather": {
+    "temperature_2m": 27.1,
+    "rain": 0.0064516129032258064,
+    "relative_humidity_2m": 81.65,
+    "wind_speed_10m": 5.3
+  }
+}
