@@ -30,8 +30,8 @@ import pvlib
 warnings.filterwarnings("ignore")
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
-CSV_PATH        = "/workspace/data/combined_dataset.csv"
-MODEL_PATH      = "/workspace/best_model.pt"
+CSV_PATH        = "./data/combined_dataset.csv"
+MODEL_PATH      = "./best_model.pt"
 STATS_PATH      = "./train_stats.json"
 WEATHER_JSON    = "./datanow/weather/weather_current.json"
 SATELLITE_IMG   = "./datanow/satellite/himawari_current.png"
