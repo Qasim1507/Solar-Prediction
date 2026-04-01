@@ -296,7 +296,23 @@ class CurrentDataCollector:
 
 
 if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--time", type=str, default=None, 
+                        help="Target time for verification (ISO format: YYYY-MM-DDTHH:MM:SS)")
+    args = parser.parse_args()
+    
     collector = CurrentDataCollector()
     
-    print("Fetching current weather and satellite data...\n")
-    collector.fetch_current_data()
+    if args.time:
+        # Parse target time for verification
+        from datetime import datetime
+        import pytz
+        target_dt = datetime.fromisoformat(args.time)
+        sgt = pytz.timezone("Asia/Singapore")
+        target_dt_sgt = sgt.localize(target_dt)
+        print(f"Fetching weather and satellite data for {target_dt_sgt.strftime('%Y-%m-%d %H:%M:%S SGT')}...\n")
+        collector.fetch_current_data(date_time=args.time)
+    else:
+        print("Fetching current weather and satellite data...\n")
+        collector.fetch_current_data()
