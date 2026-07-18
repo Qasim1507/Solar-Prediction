@@ -1,8 +1,19 @@
 """
 model.py — Shared model definition and inference helpers
 =========================================================
-Single source of truth for PhysicsGatedFusionModel and all
-helper functions used by predict.py and verify.py.
+Single source of truth for the model architecture and all inference
+helpers. predict.py and verify.py import from here — do not duplicate.
+
+Two architectures live here:
+
+  PhysicsGatedFusionModel   (v1) — DEPLOYED. Matches the trained
+      checkpoints on disk (best_model*.pt): single EfficientNetB2
+      image encoder, simplified cross-attention, 2-input physics gate.
+
+  PhysicsGatedFusionModelV2 (v2) — EXPERIMENTAL. Dual CNN branches
+      (global + RoI), 8-head cross-attention over 196 patches, 4-input
+      gate with optical flow. No trained checkpoint exists for v2 yet;
+      retrain in solar_pv_main.ipynb before using it for inference.
 """
 
 import os
@@ -11,8 +22,10 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from PIL import Image
 import pvlib
+import timm
 
 # ── Image normalisation (ImageNet) ────────────────────────────────────────────
 IMG_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
@@ -27,10 +40,14 @@ TABULAR_COLS = [
 ]
 
 WINDOW_SIZE = 24
+FLOW_SIZE   = 64          # resolution used when computing optical flow (v2)
+ZEROS_IMG   = torch.zeros((3, 224, 224), dtype=torch.float32)
+
+SG_LAT, SG_LON = 1.3521, 103.8198
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# MODEL
+# SHARED BUILDING BLOCKS
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TemporalSelfAttention(nn.Module):
@@ -60,35 +77,36 @@ class BiLSTMEncoder(nn.Module):
 
 
 class EfficientNetB2Encoder(nn.Module):
-    def __init__(self, pretrained_encoder_path: str = None):
-        """
-        Parameters
-        ----------
-        pretrained_encoder_path : str, optional
-            Path to swimseg_encoder.pt produced by swimseg_pretrain.py.
-            When provided, loads cloud-segmentation-pretrained weights into
-            the backbone before fusion model training begins.
-        """
+    """
+    EfficientNetB2 feature extractor (last stage: 352 ch, 7x7).
+    Optionally initialised from a SwimSeg-pretrained encoder checkpoint.
+    """
+    def __init__(self, pretrained_encoder_path: str = None,
+                 imagenet_fallback: bool = False):
         super().__init__()
-        import timm
-        base = timm.create_model("efficientnet_b2", pretrained=False, features_only=True)
-        self.backbone     = base
+        use_imagenet = imagenet_fallback and (
+            pretrained_encoder_path is None or
+            not os.path.exists(pretrained_encoder_path))
+        self.backbone     = timm.create_model("efficientnet_b2",
+                                              pretrained=use_imagenet,
+                                              features_only=True)
         self.img_channels = 352
 
-        if pretrained_encoder_path and os.path.exists(pretrained_encoder_path):
-            state = torch.load(pretrained_encoder_path, map_location="cpu", weights_only=True)
+        if (pretrained_encoder_path is not None and
+                os.path.exists(pretrained_encoder_path)):
+            state = torch.load(pretrained_encoder_path, map_location="cpu",
+                               weights_only=True)
             missing, unexpected = self.backbone.load_state_dict(state, strict=False)
-            print(f"  ✓ Loaded SwimSeg pretrained encoder from {pretrained_encoder_path}")
-            if missing:
-                print(f"    Missing keys  : {len(missing)}")
-            if unexpected:
-                print(f"    Unexpected keys: {len(unexpected)}")
-        elif pretrained_encoder_path:
-            print(f"  ⚠️  Pretrained encoder not found at {pretrained_encoder_path} — using random init")
+            print(f"  ✓ SwimSeg encoder loaded ({len(missing)} missing, "
+                  f"{len(unexpected)} unexpected)")
 
     def forward(self, x):
-        return self.backbone(x)[-1]
+        return self.backbone(x)[-1]   # (B, 352, 7, 7)
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+# V1 MODEL — matches the trained checkpoints (best_model*.pt)
+# ══════════════════════════════════════════════════════════════════════════════
 
 class SimplifiedCrossAttention(nn.Module):
     def __init__(self, query_dim, key_dim, hidden_dim=256):
@@ -108,28 +126,32 @@ class SimplifiedCrossAttention(nn.Module):
 
 
 class PhysicsGatedFusionModel(nn.Module):
-    def __init__(self, pretrained_encoder_path: str = None):
-        """
-        Parameters
-        ----------
-        pretrained_encoder_path : str, optional
-            Path to SwimSeg-pretrained encoder weights (swimseg_encoder.pt).
-            Pass this when training to initialise the CNN with cloud-aware weights.
-        """
+    """
+    Physics-Gated Cross-Modal Attention Fusion (v1 — deployed).
+
+    Inputs
+    ------
+    tabular_seq    : (B, 24, 11)
+    image          : (B, 3, 224, 224)
+    future_clearsky: (B, 3)
+    gate_features  : (B, 2)  [clearsky_ratio, cloud_cover]
+    """
+    def __init__(self):
         super().__init__()
         self.temporal     = BiLSTMEncoder(input_dim=len(TABULAR_COLS))
-        self.image_enc    = EfficientNetB2Encoder(pretrained_encoder_path)
+        self.image_enc    = EfficientNetB2Encoder()
         self.temp_dim     = self.temporal.out_dim
         self.img_channels = self.image_enc.img_channels
         self.D            = 256
 
-        self.cross_attn = SimplifiedCrossAttention(self.temp_dim, self.img_channels, self.D)
+        self.cross_attn = SimplifiedCrossAttention(self.temp_dim,
+                                                   self.img_channels, self.D)
         self.gate = nn.Sequential(
             nn.Linear(2, 16), nn.ReLU(),
-            nn.Linear(16, 1), nn.Sigmoid(),
+            nn.Linear(16, 1), nn.Sigmoid()
         )
         self.enrich = nn.Sequential(
-            nn.Linear(self.D + 3, self.D), nn.ReLU(), nn.Dropout(0.15),
+            nn.Linear(self.D + 3, self.D), nn.ReLU(), nn.Dropout(0.15)
         )
         self.head = nn.Sequential(
             nn.Linear(self.D, 128), nn.LayerNorm(128), nn.GELU(), nn.Dropout(0.15),
@@ -146,38 +168,149 @@ class PhysicsGatedFusionModel(nn.Module):
         H_a, _  = self.cross_attn(H_t, img_features, img_features)
         alpha   = self.gate(gate_features)
         pad     = H_t[:, :self.D] if self.temp_dim >= self.D else \
-                  nn.functional.pad(H_t, (0, self.D - self.temp_dim))
+                  F.pad(H_t, (0, self.D - self.temp_dim))
         fused   = self.enrich(torch.cat([alpha * pad + (1 - alpha) * H_a,
                                          future_clearsky], dim=1))
         out     = self.head(fused)
         mu      = out[:, :3]
-        sigma   = nn.functional.softplus(out[:, 3:]) + 1e-4
+        sigma   = F.softplus(out[:, 3:]) + 1e-4
         return mu, sigma
 
 
-def load_model(model_path: str, device: torch.device,
-               pretrained_encoder_path: str = None) -> PhysicsGatedFusionModel:
-    """
-    Load PhysicsGatedFusionModel weights from disk.
-
-    Parameters
-    ----------
-    pretrained_encoder_path : str, optional
-        Only used when loading a model for training (not inference).
-        For inference, the saved checkpoint already contains trained weights.
-    """
-    model = PhysicsGatedFusionModel(pretrained_encoder_path).to(device)
-    model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
+def load_model(model_path: str, device: torch.device) -> PhysicsGatedFusionModel:
+    """Load a trained v1 checkpoint (best_model*.pt) ready for inference."""
+    model = PhysicsGatedFusionModel().to(device)
+    model.load_state_dict(torch.load(model_path, map_location=device,
+                                     weights_only=True))
     model.eval()
     return model
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# HELPERS
+# V2 MODEL — experimental, no trained checkpoint yet
+# ══════════════════════════════════════════════════════════════════════════════
+
+class MultiHeadCrossAttention(nn.Module):
+    """
+    8-head cross-attention.
+    Query = BiLSTM temporal summary.
+    Keys/values = 196 image patches (3 global frames x 49 + 1 RoI x 49).
+    """
+    def __init__(self, query_dim, kv_dim, hidden_dim=256, num_heads=8):
+        super().__init__()
+        self.q_proj  = nn.Linear(query_dim, hidden_dim)
+        self.kv_proj = nn.Linear(kv_dim,    hidden_dim)
+        self.attn    = nn.MultiheadAttention(hidden_dim, num_heads,
+                                             dropout=0.1, batch_first=True)
+        self.out_dim = hidden_dim
+
+    def forward(self, query, kv):
+        Q      = self.q_proj(query).unsqueeze(1)   # (B, 1, D)
+        KV     = self.kv_proj(kv)                  # (B, N, D)
+        out, w = self.attn(Q, KV, KV)              # (B,1,D), (B,1,N)
+        return out.squeeze(1), w.squeeze(1)
+
+
+class PhysicsGatedFusionModelV2(nn.Module):
+    """
+    Physics-Gated Cross-Modal Attention Fusion (v2 — experimental).
+
+    Inputs
+    ------
+    tabular_seq    : (B, 24, 11)
+    multi_frame    : (B, 9, 224, 224)   frames at t, t-1h, t-2h stacked
+    roi_image      : (B, 3, 224, 224)   centre crop of current frame
+    future_clearsky: (B, 3)
+    gate_features  : (B, 4)  [clearsky_ratio, cloud_cover, flow_vx, flow_vy]
+    """
+    def __init__(self, ablation=None, pretrained_encoder_path=None):
+        super().__init__()
+        self.ablation = ablation
+        input_dim = len(TABULAR_COLS)
+
+        self.temporal = BiLSTMEncoder(input_dim=input_dim)
+        self.temp_dim = self.temporal.out_dim
+
+        self.global_enc = EfficientNetB2Encoder(pretrained_encoder_path,
+                                                imagenet_fallback=True)
+        self.roi_enc    = EfficientNetB2Encoder(pretrained_encoder_path,
+                                                imagenet_fallback=True)
+        self.img_ch     = 352
+        self.D          = 256
+
+        self.cross_attn = MultiHeadCrossAttention(self.temp_dim, self.img_ch,
+                                                  self.D, num_heads=8)
+        self.gate = nn.Sequential(
+            nn.Linear(4, 32), nn.ReLU(),
+            nn.Linear(32, 1), nn.Sigmoid()
+        )
+        in_dim = self.D if ablation != "concat" else self.D * 2
+        self.enrich = nn.Sequential(
+            nn.Linear(in_dim + 3, self.D), nn.ReLU(), nn.Dropout(0.15)
+        )
+        self.head = nn.Sequential(
+            nn.Linear(self.D, 128), nn.LayerNorm(128), nn.GELU(), nn.Dropout(0.15),
+            nn.Linear(128, 64),    nn.LayerNorm(64),  nn.GELU(),
+            nn.Linear(64, 6),
+        )
+        self.freeze_cnn()
+
+    def freeze_cnn(self):
+        for enc in [self.global_enc, self.roi_enc]:
+            for p in enc.parameters():
+                p.requires_grad = False
+
+    def unfreeze_cnn(self):
+        for enc in [self.global_enc, self.roi_enc]:
+            for p in enc.parameters():
+                p.requires_grad = True
+
+    def _image_patches(self, multi_frame, roi_image):
+        B = multi_frame.shape[0]
+        def to_patches(feat):
+            _, C, H, W = feat.shape
+            return feat.view(B, C, H * W).transpose(1, 2)
+        f0 = self.global_enc(multi_frame[:, 0:3])
+        f1 = self.global_enc(multi_frame[:, 3:6])
+        f2 = self.global_enc(multi_frame[:, 6:9])
+        fr = self.roi_enc(roi_image)
+        return torch.cat([to_patches(f0), to_patches(f1),
+                          to_patches(f2), to_patches(fr)], dim=1)  # (B,196,352)
+
+    def forward(self, tabular_seq, multi_frame, roi_image,
+                future_clearsky, gate_features, return_attn=False):
+        H_t      = self.temporal(tabular_seq)
+        patches  = self._image_patches(multi_frame, roi_image)
+        H_a, aw  = self.cross_attn(H_t, patches)
+        alpha    = self.gate(gate_features)
+
+        pad = (H_t[:, :self.D] if self.temp_dim >= self.D
+               else F.pad(H_t, (0, self.D - self.temp_dim)))
+
+        if self.ablation == "lstm":
+            fused = self.enrich(torch.cat([pad, future_clearsky], dim=1))
+        elif self.ablation == "cnn":
+            fused = self.enrich(torch.cat([H_a, future_clearsky], dim=1))
+        elif self.ablation == "concat":
+            fused = self.enrich(torch.cat([pad, H_a, future_clearsky], dim=1))
+        else:
+            fused = self.enrich(torch.cat(
+                [alpha * pad + (1 - alpha) * H_a, future_clearsky], dim=1))
+
+        out   = self.head(fused)
+        mu    = out[:, :3]
+        sigma = F.softplus(out[:, 3:]) + 1e-4
+
+        if return_attn:
+            return mu, sigma, alpha, aw
+        return mu, sigma
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# INFERENCE HELPERS (shared by predict.py and verify.py)
 # ══════════════════════════════════════════════════════════════════════════════
 
 def load_weather_from_json(path: str) -> dict:
-    """Parse weather_current.json into flat feature dict."""
     with open(path) as f:
         data = json.load(f)
 
@@ -195,40 +328,38 @@ def load_weather_from_json(path: str) -> dict:
     }
 
 
-def load_satellite_image(path: str) -> torch.Tensor:
-    """Load himawari_current.png, resize and normalise for model input."""
-    if not os.path.exists(path):
+def load_image_tensor(path: str) -> torch.Tensor:
+    """Load a PNG/NPY satellite image as a normalised (3,224,224) tensor."""
+    if not path or not os.path.exists(path):
         print(f"  ⚠️  Satellite image not found at {path} — using zeros")
-        return torch.zeros((3, 224, 224), dtype=torch.float32)
+        return ZEROS_IMG.clone()
     try:
-        img = Image.open(path).convert("RGB")
-        img = img.resize((224, 224), Image.BILINEAR)
-        arr = np.array(img, dtype=np.float32) / 255.0
+        if path.endswith(".npy"):
+            arr = np.load(path).astype(np.float32)
+        else:
+            img = Image.open(path).convert("RGB").resize((224, 224), Image.BILINEAR)
+            arr = np.array(img, dtype=np.float32) / 255.0
         arr = (arr - IMG_MEAN) / IMG_STD
-        print(f"  ✓ Satellite image loaded from {path}")
         return torch.from_numpy(arr.transpose(2, 0, 1)).float()
     except Exception as e:
-        print(f"  ⚠️  Could not load satellite image: {e} — using zeros")
-        return torch.zeros((3, 224, 224), dtype=torch.float32)
+        print(f"  ⚠️  Could not load {path}: {e} — using zeros")
+        return ZEROS_IMG.clone()
 
 
 def compute_clearsky_ghi(dt_sgt) -> float:
-    """Compute GHI clearsky using pvlib for Singapore."""
-    loc   = pvlib.location.Location(1.3521, 103.8198, tz="Asia/Singapore")
+    loc   = pvlib.location.Location(SG_LAT, SG_LON, tz="Asia/Singapore")
     times = pd.DatetimeIndex([dt_sgt])
     cs    = loc.get_clearsky(times)
     return float(cs["ghi"].iloc[0])
 
 
-def build_lookback_window(
-    df: pd.DataFrame,
-    train_stats: dict,
-    reference_time,
-) -> torch.Tensor:
-    """
-    Build a normalised [1, WINDOW_SIZE, n_features] tensor from a pre-loaded
-    historical DataFrame up to reference_time.
-    """
+def load_historical_df(csv_path: str) -> pd.DataFrame:
+    df = pd.read_csv(csv_path)
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    return df.sort_values("timestamp").reset_index(drop=True)
+
+
+def _add_engineered_features(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df["clearsky_ratio"] = df["ghi"] / (df["ghi_clearsky"] + 1e-6)
     df["hour"]           = df["timestamp"].dt.hour
@@ -238,6 +369,13 @@ def build_lookback_window(
     df["sin_month"]      = np.sin(2 * np.pi * df["month"] / 12)
     df["cos_month"]      = np.cos(2 * np.pi * df["month"] / 12)
     df["ghi_lag1"]       = df["ghi"].shift(1).fillna(0)
+    return df
+
+
+def build_lookback_window(df: pd.DataFrame, train_stats: dict,
+                          reference_time) -> torch.Tensor:
+    """Build the normalised (1, 24, 11) lookback tensor ending at reference_time."""
+    df = _add_engineered_features(df)
 
     ref_naive = pd.Timestamp(reference_time).replace(tzinfo=None)
     past      = df[df["timestamp"] <= ref_naive].tail(WINDOW_SIZE)
@@ -255,15 +393,14 @@ def build_lookback_window(
     mean = np.array(train_stats["mean"], dtype=np.float32)
     std  = np.array(train_stats["std"],  dtype=np.float32)
     arr  = (tab.values.astype(np.float32) - mean) / std
+    return torch.from_numpy(arr).float().unsqueeze(0)   # (1, 24, 11)
 
-    return torch.from_numpy(arr).float().unsqueeze(0)  # [1, 24, features]
 
-
-def compute_gate_features(
-    df: pd.DataFrame,
-    reference_time,
-) -> torch.Tensor:
-    """Compute [clearsky_ratio, cloud_cover_normed] gate features at reference_time."""
+def compute_gate_features(df: pd.DataFrame, reference_time) -> torch.Tensor:
+    """
+    Returns the (1, 2) gate tensor [clearsky_ratio, cloud_cover] evaluated
+    at reference_time (uses the last CSV row at or before that time).
+    """
     ref_naive = pd.Timestamp(reference_time).replace(tzinfo=None)
     row       = df[df["timestamp"] <= ref_naive].tail(1)
     ghi_last  = float(row["ghi"].iloc[0]) if len(row) else 400.0
@@ -273,8 +410,12 @@ def compute_gate_features(
     return torch.tensor([[cr, cc / 100.0]], dtype=torch.float32)
 
 
-def load_historical_df(csv_path: str) -> pd.DataFrame:
-    """Load and sort the historical CSV once for reuse across helper calls."""
-    df = pd.read_csv(csv_path)
-    df["timestamp"] = pd.to_datetime(df["timestamp"])
-    return df.sort_values("timestamp").reset_index(drop=True)
+def denormalise_forecast(mu_np, sigma_np, train_stats: dict):
+    """Convert normalised model outputs to W/m² with a 90% CI."""
+    ghi_mean = float(train_stats["ghi_mean"])
+    ghi_std  = float(train_stats["ghi_std"])
+    mu_real  = np.clip(mu_np * ghi_std + ghi_mean, 0, None)
+    sig_real = sigma_np * ghi_std
+    lo       = np.clip(mu_real - 1.645 * sig_real, 0, None)
+    hi       = mu_real + 1.645 * sig_real
+    return mu_real, lo, hi

@@ -1,1 +1,19 @@
+# Secrets — never commit
+.env
+credentials.json
+
+# Data (large / regenerable)
 data/
+datanow/
+swimseg/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# OS junk
+.DS_Store
+
+# Generated artifacts
+repomix-output.xml
