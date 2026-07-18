@@ -25,11 +25,10 @@ import pytz
 
 from model import (
     load_model,
+    run_model,
     load_weather_from_json,
-    load_image_tensor,
     load_historical_df,
     build_lookback_window,
-    compute_gate_features,
     compute_clearsky_ghi,
     denormalise_forecast,
 )
@@ -86,30 +85,22 @@ def predict(model_path=MODEL_PATH, csv_path=CSV_PATH, stats_path=STATS_PATH,
           f"RH: {weather['relative_humidity_2m']:.1f}%  "
           f"Wind: {weather['wind_speed_10m']:.1f}km/h")
 
-    # ── Step 6: Load satellite image ──────────────────────────────────────────
-    print(f"\n  Loading satellite image from {SATELLITE_IMG}...")
-    image_tensor = load_image_tensor(SATELLITE_IMG).unsqueeze(0).to(device)
-
-    # ── Step 7: Build lookback window ─────────────────────────────────────────
+    # ── Step 6: Build lookback window ─────────────────────────────────────────
     print("\n  Building 24h lookback window...")
     df          = load_historical_df(csv_path)
-    tabular_seq = build_lookback_window(df, train_stats, now_sgt).to(device)
+    tabular_seq = build_lookback_window(df, train_stats, now_sgt)
 
-    # ── Step 8: Future clearsky GHI ───────────────────────────────────────────
+    # ── Step 7: Future clearsky GHI ───────────────────────────────────────────
     future_cs = [compute_clearsky_ghi(now_sgt + timedelta(hours=h))
                  for h in [1, 2, 3]]
-    future_clearsky = torch.tensor(future_cs,
-                                   dtype=torch.float32).unsqueeze(0).to(device)
+    future_clearsky = torch.tensor(future_cs, dtype=torch.float32).unsqueeze(0)
     print(f"  Clearsky GHI → t+1h:{future_cs[0]:.0f}  t+2h:{future_cs[1]:.0f}  "
           f"t+3h:{future_cs[2]:.0f} W/m²")
 
-    # ── Step 9: Gate features ─────────────────────────────────────────────────
-    gate_features = compute_gate_features(df, now_sgt).to(device)
-
-    # ── Step 10: Inference ────────────────────────────────────────────────────
-    with torch.no_grad():
-        mu, sigma = model(tabular_seq, image_tensor, future_clearsky,
-                          gate_features)
+    # ── Step 8: Inference (image + gate inputs built per architecture) ────────
+    print(f"\n  Loading satellite image from {SATELLITE_IMG}...")
+    mu, sigma = run_model(model, tabular_seq, SATELLITE_IMG, future_clearsky,
+                          df, now_sgt, device)
 
     mu_real, lo, hi = denormalise_forecast(mu.cpu().numpy()[0],
                                            sigma.cpu().numpy()[0], train_stats)
