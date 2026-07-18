@@ -203,8 +203,10 @@ def fetch_all():
     # ---- PVGIS: 2020–2023 ----
     pvgis_df = fetch_pvgis_range(start_year=2020, end_year=2023)
 
-    # ---- Open-Meteo + pvlib: 2024–2026 ----
-    openmeteo_df = fetch_openmeteo_pv("2024-01-01", "2026-02-02")
+    # ---- Open-Meteo + pvlib: 2024–present ----
+    import datetime as _dt
+    end_date = (_dt.date.today() - _dt.timedelta(days=5)).isoformat()
+    openmeteo_df = fetch_openmeteo_pv("2024-01-01", end_date)
 
     # ---- Combine ----
     parts = [df for df in [pvgis_df, openmeteo_df] if not df.empty]

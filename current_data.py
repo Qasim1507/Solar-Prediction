@@ -8,7 +8,21 @@ from PIL import Image
 from io import BytesIO
 import pytz
 import numpy as np
-from io import BytesIO
+
+
+def _load_env(path=".env"):
+    """Minimal .env loader (no external dependency)."""
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), path)
+    if os.path.exists(env_path):
+        with open(env_path) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    key, _, val = line.partition("=")
+                    os.environ.setdefault(key.strip(), val.strip())
+
+_load_env()
+
 
 class WeatherCollector:
     def __init__(self, save_dir="datanow/weather"):
@@ -63,8 +77,11 @@ class WeatherCollector:
 class SatelliteCollector:
     def __init__(self, save_dir="datanow/satellite"):
         self.ftp_host = "ftp.ptree.jaxa.jp"
-        self.ftp_user = "nalawalaq_gmail.com"
-        self.ftp_pass = "SP+wari8"
+        self.ftp_user = os.environ.get("JAXA_FTP_USER")
+        self.ftp_pass = os.environ.get("JAXA_FTP_PASS")
+        if not self.ftp_user or not self.ftp_pass:
+            print("⚠️  JAXA_FTP_USER / JAXA_FTP_PASS not set — add them to .env "
+                  "(see .env.example). Satellite fetch will fail without them.")
         self.save_dir = save_dir
         os.makedirs(save_dir, exist_ok=True)
 
@@ -116,12 +133,19 @@ class SatelliteCollector:
                     ftp.quit()
                     return None
 
-                # Pick closest by time
-                def file_time(f):
-                    t = f.split("_")[2] + f.split("_")[3]  # YYYYMMDD + HHMM
-                    return abs(int(f.split("_")[3]) - int(hhmm))
+                # Pick closest by time (proper datetime diff, handles
+                # midnight wraparound e.g. 2350 vs 0000)
+                def file_time_diff(f):
+                    try:
+                        parts = f.split("_")
+                        file_dt = datetime.strptime(parts[2] + parts[3],
+                                                    "%Y%m%d%H%M")
+                        file_dt = pytz.UTC.localize(file_dt)
+                        return abs((file_dt - date_time).total_seconds())
+                    except (ValueError, IndexError):
+                        return float("inf")
 
-                r21 = [sorted(r21_all, key=file_time)[0]]
+                r21 = [sorted(r21_all, key=file_time_diff)[0]]
 
             target_file = r21[0]
             print(f"  Downloading: {target_file}")
@@ -177,28 +201,41 @@ class CurrentDataCollector:
         self.combined_dir = "datanow/current"
         os.makedirs(self.combined_dir, exist_ok=True)
     
-    def fetch_current_data(self):
+    def fetch_current_data(self, date_time=None):
         """
-        Fetch both current weather data and corresponding satellite image.
+        Fetch both weather data and the corresponding satellite image.
+
+        Args:
+            date_time: optional ISO string "YYYY-MM-DDTHH:MM:SS" (SGT).
+                       If given, fetches data for that time instead of now.
+
         Returns a dictionary with paths to both data files.
         """
         print("\n" + "="*70)
         print("FETCHING CURRENT DATA")
         print("="*70 + "\n")
-        
+
         timestamp = datetime.now()
-        
+
+        # Parse target time for the satellite fetch (needs a datetime, UTC-aware)
+        sat_datetime = None
+        if date_time:
+            sgt = pytz.timezone("Asia/Singapore")
+            sat_datetime = sgt.localize(datetime.fromisoformat(date_time))
+
         # 1. Fetch weather data
         print("📊 Fetching Weather Data...")
         print("-" * 70)
-        weather_data, weather_file = self.weather_collector.fetch_data()
-        
+        weather_data, weather_file = self.weather_collector.fetch_data(
+            date_time=date_time)
+
         print("\n")
-        
+
         # 2. Fetch satellite image
         print("🛰️  Fetching Satellite Image...")
         print("-" * 70)
-        satellite_file = self.satellite_collector.fetch_image()
+        satellite_file = self.satellite_collector.fetch_image(
+            date_time=sat_datetime)
         
         # 3. Create combined metadata
         metadata = {
@@ -305,13 +342,10 @@ if __name__ == "__main__":
     collector = CurrentDataCollector()
     
     if args.time:
-        # Parse target time for verification
-        from datetime import datetime
-        import pytz
-        target_dt = datetime.fromisoformat(args.time)
-        sgt = pytz.timezone("Asia/Singapore")
-        target_dt_sgt = sgt.localize(target_dt)
-        print(f"Fetching weather and satellite data for {target_dt_sgt.strftime('%Y-%m-%d %H:%M:%S SGT')}...\n")
+        target_dt_sgt = pytz.timezone("Asia/Singapore").localize(
+            datetime.fromisoformat(args.time))
+        print(f"Fetching weather and satellite data for "
+              f"{target_dt_sgt.strftime('%Y-%m-%d %H:%M:%S SGT')}...\n")
         collector.fetch_current_data(date_time=args.time)
     else:
         print("Fetching current weather and satellite data...\n")

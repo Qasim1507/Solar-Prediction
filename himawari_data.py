@@ -184,7 +184,7 @@ if __name__ == "__main__":
     
     collector.fetch_hourly_range(
         start_date='2024-01-01 00:00:00',
-        end_date='2026-02-02 23:00:00', 
+        end_date=None,          # defaults to latest available image time
         delay_seconds=1,
-        daylight_only=True  
+        daylight_only=True
     )

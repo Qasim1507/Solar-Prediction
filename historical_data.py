@@ -10,7 +10,11 @@ class HistoricalDataCollector:
         os.makedirs(save_dir, exist_ok=True)
         self.lat, self.lon = 1.3521, 103.8198
     
-    def fetch_data(self, start_date="2024-01-01", end_date="2026-02-02"):
+    def fetch_data(self, start_date="2024-01-01", end_date=None):
+        if end_date is None:
+            # Open-Meteo archive lags ~5 days behind realtime
+            from datetime import timedelta
+            end_date = (datetime.now() - timedelta(days=5)).strftime("%Y-%m-%d")
         print(f"Fetching data from {start_date} to {end_date}...")
         
         url = "https://archive-api.open-meteo.com/v1/archive"
