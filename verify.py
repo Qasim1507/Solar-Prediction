@@ -28,11 +28,9 @@ import pytz
 
 from model import (
     load_model,
-    load_weather_from_json,
-    load_image_tensor,
+    run_model,
     load_historical_df,
     build_lookback_window,
-    compute_gate_features,
     compute_clearsky_ghi,
     SG_LAT, SG_LON,
 )
@@ -115,19 +113,16 @@ def model_reestimate(model, device, df, train_stats, forecast, idx, target_time)
     """Re-run the model for target_time and return the de-normalised estimate."""
     _, sat_path = fetch_data_for_time(target_time)
 
-    image_tensor = load_image_tensor(sat_path).unsqueeze(0).to(device)
-    tabular_seq  = build_lookback_window(df, train_stats, target_time).to(device)
+    tabular_seq = build_lookback_window(df, train_stats, target_time)
 
     future_cs = [compute_clearsky_ghi(
                      pd.Timestamp(f["time_sgt"]).tz_localize(SGT))
                  for f in forecast["forecasts"]]
-    future_clearsky = torch.tensor([future_cs], dtype=torch.float32).to(device)
+    future_clearsky = torch.tensor([future_cs], dtype=torch.float32)
 
-    # Gate features at the TARGET time (not the last CSV row)
-    gate_features = compute_gate_features(df, target_time).to(device)
-
-    with torch.no_grad():
-        mu, _ = model(tabular_seq, image_tensor, future_clearsky, gate_features)
+    # Gate features are computed inside run_model at the TARGET time
+    mu, _ = run_model(model, tabular_seq, sat_path, future_clearsky,
+                      df, target_time, device)
 
     mu_np = mu.cpu().numpy()[0]
     ghi_mean = float(train_stats["ghi_mean"])
