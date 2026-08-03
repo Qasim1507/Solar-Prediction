@@ -36,7 +36,7 @@ from model import (
 warnings.filterwarnings("ignore")
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
-CSV_PATH      = "./data/combined_dataset.csv"
+CSV_PATH      = "./combined_dataset.csv"
 MODEL_PATH    = "./best_model.pt"
 STATS_PATH    = "./train_stats.json"
 WEATHER_JSON  = "./datanow/weather/weather_current.json"
