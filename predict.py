@@ -88,6 +88,13 @@ def predict(model_path=MODEL_PATH, csv_path=CSV_PATH, stats_path=STATS_PATH,
     # ── Step 6: Build lookback window ─────────────────────────────────────────
     print("\n  Building 24h lookback window...")
     df          = load_historical_df(csv_path)
+    data_age_h  = (now_sgt.replace(tzinfo=None)
+                   - df["timestamp"].max()).total_seconds() / 3600
+    if data_age_h > 48:
+        print(f"  ⚠️  Historical CSV is {data_age_h/24:.0f} days old "
+              f"(ends {df['timestamp'].max()}). The lookback window is stale —")
+        print(f"      refresh it: python historical_data.py && "
+              f"python fetch_solcast.py && python combined_dataset.py")
     tabular_seq = build_lookback_window(df, train_stats, now_sgt)
 
     # ── Step 7: Future clearsky GHI ───────────────────────────────────────────
@@ -104,6 +111,16 @@ def predict(model_path=MODEL_PATH, csv_path=CSV_PATH, stats_path=STATS_PATH,
 
     mu_real, lo, hi = denormalise_forecast(mu.cpu().numpy()[0],
                                            sigma.cpu().numpy()[0], train_stats)
+
+    # ── Physics clamp: GHI can never exceed ~110% of clearsky ────────────────
+    # (also forces night forecasts to 0, where clearsky = 0)
+    cs_cap  = 1.1 * np.array(future_cs)
+    mu_real = np.minimum(mu_real, cs_cap)
+    lo      = np.minimum(lo, cs_cap)
+    hi      = np.minimum(hi, cs_cap)
+    if not (6 <= now_sgt.hour <= 17):
+        print("\n  ⚠️  Outside training hours (model trained on 08:00–17:00 SGT "
+              "daylight only) — forecasts clamped to clearsky physics.")
 
     # ── Print results ─────────────────────────────────────────────────────────
     print(f"\n{'='*60}")
