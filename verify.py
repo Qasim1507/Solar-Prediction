@@ -80,10 +80,15 @@ def fetch_actual_ghi(target_times) -> dict:
         print(f"  ⚠️  Could not fetch actual GHI from Open-Meteo: {e}")
         return {}
 
+    # Only accept hours that have fully passed — anything later is
+    # Open-Meteo's own FORECAST, not a measurement.
+    now_sgt = pd.Timestamp.now(tz="Asia/Singapore").tz_localize(None)
+    cutoff  = now_sgt.floor("h")
+
     out = {}
     for tt in target_times:
         key = pd.Timestamp(tt).replace(tzinfo=None).floor("h")
-        if key in lookup:
+        if key in lookup and key <= cutoff:
             out[key] = float(lookup[key])
     return out
 
@@ -153,6 +158,20 @@ def main(model_fallback=True):
                                  .replace(tzinfo=None))
                     for f in forecast["forecasts"]]
 
+    # ── Too early? Targets must have passed before they can be verified ───────
+    now_sgt = pd.Timestamp.now(tz="Asia/Singapore")
+    future  = [t for t in target_times if pd.Timestamp(t) > now_sgt]
+    if future:
+        last = max(target_times)
+        print(f"  ⏳ {len(future)}/{len(target_times)} forecast hours haven't "
+              f"happened yet.")
+        print(f"     Run verify.py again after "
+              f"{pd.Timestamp(last).strftime('%H:%M')} SGT for a full "
+              f"verification.\n")
+        if len(future) == len(target_times):
+            print("  Nothing to verify yet — exiting.")
+            return
+
     # ── Primary: real actuals ─────────────────────────────────────────────────
     print("  Fetching actual GHI from Open-Meteo...")
     actuals = fetch_actual_ghi(target_times)
@@ -183,6 +202,11 @@ def main(model_fallback=True):
         target_time  = target_times[idx]
         original_ghi = f["ghi_forecast_wm2"]
         key = pd.Timestamp(target_time).replace(tzinfo=None).floor("h")
+
+        if pd.Timestamp(target_time) > now_sgt:
+            print(f"  {f['horizon']:<8} {original_ghi:>10.1f} "
+                  f"{'(not yet)':>12} {'—':>10}")
+            continue
 
         if key in actuals:
             actual, source = actuals[key], "measured"
