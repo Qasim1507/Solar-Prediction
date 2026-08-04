@@ -94,8 +94,59 @@ class SatelliteCollector:
         return target
 
     def fetch_image(self, date_time=None):
+        """
+        Fetch the latest Singapore satellite tile.
+        Primary: NICT public Himawari tile server (no login) — the SAME
+                 source as the training images (data/satellite/).
+        Fallback: JAXA P-Tree FTP (needs JAXA_FTP_USER/PASS in .env).
+        """
+        result = self.fetch_image_nict(date_time)
+        if result:
+            return result
+        print("  NICT fetch failed — trying JAXA FTP fallback...")
+        return self.fetch_image_jaxa(date_time)
+
+    def fetch_image_nict(self, date_time=None):
+        """Fetch Himawari tile from NICT (public, matches training data)."""
+        if date_time is None:
+            date_time = self.get_latest_timestamp()
+        if date_time.tzinfo is None:
+            date_time = pytz.UTC.localize(date_time)
+        else:
+            date_time = date_time.astimezone(pytz.UTC)
+
+        # Same tile as himawari_data.py: level 4d, row 1, col 1 (Singapore)
+        date_str = date_time.strftime("%Y/%m/%d/%H%M00")
+        url = (f"https://himawari8-dl.nict.go.jp/himawari8/img/D531106"
+               f"/4d/550/{date_str}_1_1.png")
+        print(f"Fetching Satellite Image via NICT (public)")
+        print(f"  Time (UTC): {date_time.strftime('%Y-%m-%d %H:%M:%S')}")
+
+        try:
+            resp = requests.get(url, verify=False, timeout=30)
+            if resp.status_code != 200:
+                print(f"  ✗ NICT returned status {resp.status_code}")
+                return None
+            img = Image.open(BytesIO(resp.content))
+            # Grayscale → RGB, matching training preprocessing exactly
+            gray = img.convert("L")
+            img_rgb = Image.merge("RGB", (gray, gray, gray))
+            filename = f"{self.save_dir}/himawari_current.png"
+            img_rgb.save(filename)
+            print(f"✓ Satellite image saved to {filename} "
+                  f"(size: {img_rgb.size}, grayscale-RGB)")
+            return filename
+        except Exception as e:
+            print(f"  ✗ NICT error: {e}")
+            return None
+
+    def fetch_image_jaxa(self, date_time=None):
         import ftplib
         import netCDF4 as nc
+
+        if not self.ftp_user or not self.ftp_pass:
+            print("  ✗ No JAXA credentials in .env — skipping FTP fallback")
+            return None
 
         if date_time is None:
             date_time = self.get_latest_timestamp()
