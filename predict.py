@@ -106,6 +106,12 @@ def predict(model_path=MODEL_PATH, csv_path=CSV_PATH, stats_path=STATS_PATH,
 
     # ── Step 8: Inference (image + gate inputs built per architecture) ────────
     print(f"\n  Loading satellite image from {SATELLITE_IMG}...")
+    if os.path.exists(SATELLITE_IMG):
+        import time as _time
+        sat_age_h = (_time.time() - os.path.getmtime(SATELLITE_IMG)) / 3600
+        if sat_age_h > 2:
+            print(f"  ⚠️  Satellite image is {sat_age_h:.0f}h old (live fetch "
+                  f"failed?) — check JAXA credentials in .env")
     mu, sigma = run_model(model, tabular_seq, SATELLITE_IMG, future_clearsky,
                           df, now_sgt, device)
 

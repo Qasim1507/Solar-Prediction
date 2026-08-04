@@ -1,35 +1,36 @@
 {
-  "forecast_time_sgt": "2026-04-01 11:00",
+  "forecast_time_sgt": "2026-08-04 12:00",
   "forecasts": [
     {
       "horizon": "t+1h",
-      "time_sgt": "2026-04-01 12:00",
-      "ghi_forecast_wm2": 152.2,
-      "ghi_lower_90": 20.8,
-      "ghi_upper_90": 283.5,
-      "clearsky_wm2": 919.2
+      "time_sgt": "2026-08-04 13:00",
+      "ghi_forecast_wm2": 127.8,
+      "ghi_lower_90": 0.0,
+      "ghi_upper_90": 263.8,
+      "clearsky_wm2": 912.7
     },
     {
       "horizon": "t+2h",
-      "time_sgt": "2026-04-01 13:00",
-      "ghi_forecast_wm2": 96.6,
+      "time_sgt": "2026-08-04 14:00",
+      "ghi_forecast_wm2": 75.0,
       "ghi_lower_90": 0.0,
-      "ghi_upper_90": 205.6,
-      "clearsky_wm2": 970.1
+      "ghi_upper_90": 180.4,
+      "clearsky_wm2": 889.2
     },
     {
       "horizon": "t+3h",
-      "time_sgt": "2026-04-01 14:00",
-      "ghi_forecast_wm2": 90.2,
+      "time_sgt": "2026-08-04 15:00",
+      "ghi_forecast_wm2": 111.2,
       "ghi_lower_90": 0.0,
-      "ghi_upper_90": 227.7,
-      "clearsky_wm2": 941.9
+      "ghi_upper_90": 258.9,
+      "clearsky_wm2": 793.9
     }
   ],
   "current_weather": {
-    "temperature_2m": 29.85,
-    "rain": 0.0,
-    "relative_humidity_2m": 72.35,
-    "wind_speed_10m": 3.5
+    "temperature_2m": 28.0,
+    "rain": 0.01038961038961039,
+    "relative_humidity_2m": 83.5,
+    "wind_speed_10m": 15.2,
+    "cloud_cover": 0.0
   }
 }
