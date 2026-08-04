@@ -28,6 +28,7 @@ from model import (
     run_model,
     load_weather_from_json,
     load_historical_df,
+    extend_with_recent,
     build_lookback_window,
     compute_clearsky_ghi,
     denormalise_forecast,
@@ -87,14 +88,13 @@ def predict(model_path=MODEL_PATH, csv_path=CSV_PATH, stats_path=STATS_PATH,
 
     # ── Step 6: Build lookback window ─────────────────────────────────────────
     print("\n  Building 24h lookback window...")
-    df          = load_historical_df(csv_path)
-    data_age_h  = (now_sgt.replace(tzinfo=None)
-                   - df["timestamp"].max()).total_seconds() / 3600
-    if data_age_h > 48:
-        print(f"  ⚠️  Historical CSV is {data_age_h/24:.0f} days old "
-              f"(ends {df['timestamp'].max()}). The lookback window is stale —")
-        print(f"      refresh it: python historical_data.py && "
-              f"python fetch_solcast.py && python combined_dataset.py")
+    df = load_historical_df(csv_path)
+    df = extend_with_recent(df)   # live API fills the archive's ~5-day lag
+    data_age_h = (now_sgt.replace(tzinfo=None)
+                  - df["timestamp"].max()).total_seconds() / 3600
+    if data_age_h > 6:
+        print(f"  ⚠️  Lookback data still ends {df['timestamp'].max()} "
+              f"({data_age_h:.0f}h ago) — live API top-up may have failed")
     tabular_seq = build_lookback_window(df, train_stats, now_sgt)
 
     # ── Step 7: Future clearsky GHI ───────────────────────────────────────────

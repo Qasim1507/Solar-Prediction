@@ -4,33 +4,33 @@
     {
       "horizon": "t+1h",
       "time_sgt": "2026-08-04 13:00",
-      "ghi_forecast_wm2": 127.8,
-      "ghi_lower_90": 0.0,
-      "ghi_upper_90": 263.8,
+      "ghi_forecast_wm2": 332.6,
+      "ghi_lower_90": 204.3,
+      "ghi_upper_90": 460.9,
       "clearsky_wm2": 912.7
     },
     {
       "horizon": "t+2h",
       "time_sgt": "2026-08-04 14:00",
-      "ghi_forecast_wm2": 75.0,
-      "ghi_lower_90": 0.0,
-      "ghi_upper_90": 180.4,
+      "ghi_forecast_wm2": 166.5,
+      "ghi_lower_90": 13.0,
+      "ghi_upper_90": 319.9,
       "clearsky_wm2": 889.2
     },
     {
       "horizon": "t+3h",
       "time_sgt": "2026-08-04 15:00",
-      "ghi_forecast_wm2": 111.2,
-      "ghi_lower_90": 0.0,
-      "ghi_upper_90": 258.9,
+      "ghi_forecast_wm2": 189.8,
+      "ghi_lower_90": 19.2,
+      "ghi_upper_90": 360.4,
       "clearsky_wm2": 793.9
     }
   ],
   "current_weather": {
-    "temperature_2m": 27.0,
-    "rain": 0.012987012987012988,
-    "relative_humidity_2m": 84.9,
-    "wind_speed_10m": 9.6,
+    "temperature_2m": 27.1,
+    "rain": 0.01818181818181818,
+    "relative_humidity_2m": 86.4,
+    "wind_speed_10m": 5.7,
     "cloud_cover": 0.0
   }
 }

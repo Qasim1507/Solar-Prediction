@@ -30,6 +30,7 @@ from model import (
     load_model,
     run_model,
     load_historical_df,
+    extend_with_recent,
     build_lookback_window,
     compute_clearsky_ghi,
     SG_LAT, SG_LON,
@@ -189,7 +190,7 @@ def main(model_fallback=True):
         with open(STATS_PATH) as f:
             train_stats = json.load(f)
         model = load_model(MODEL_PATH, device)
-        df    = load_historical_df(CSV_PATH)
+        df    = extend_with_recent(load_historical_df(CSV_PATH))
 
     # ── Compare ───────────────────────────────────────────────────────────────
     print(f"{'='*70}")
