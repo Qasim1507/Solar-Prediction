@@ -373,6 +373,62 @@ def load_historical_df(csv_path: str) -> pd.DataFrame:
     return df.sort_values("timestamp").reset_index(drop=True)
 
 
+def fetch_recent_df(past_days: int = 3) -> pd.DataFrame:
+    """
+    Fetch the most recent hourly weather + GHI from Open-Meteo's live API.
+    The archive API lags ~5 days behind; this fills that gap so the
+    lookback window ends at the current hour, not last week.
+    Returns a DataFrame with the columns build_lookback_window needs,
+    or None if the fetch fails.
+    """
+    import requests
+    url = "https://api.open-meteo.com/v1/forecast"
+    params = {
+        "latitude":  SG_LAT,
+        "longitude": SG_LON,
+        "hourly": ("temperature_2m,relative_humidity_2m,rain,"
+                   "wind_speed_10m,cloud_cover,shortwave_radiation"),
+        "past_days": past_days,
+        "forecast_days": 1,
+        "timezone": "Asia/Singapore",
+    }
+    try:
+        resp = requests.get(url, params=params, timeout=30)
+        resp.raise_for_status()
+        hourly = resp.json()["hourly"]
+    except Exception as e:
+        print(f"  ⚠️  Could not fetch recent hours from Open-Meteo: {e}")
+        return None
+
+    df = pd.DataFrame(hourly)
+    df["timestamp"] = pd.to_datetime(df["time"])
+    df = df.drop(columns=["time"]).rename(columns={"shortwave_radiation": "ghi"})
+
+    # Only keep hours that have passed (later rows are forecasts, not data)
+    now = pd.Timestamp.now(tz="Asia/Singapore").tz_localize(None).floor("h")
+    df = df[df["timestamp"] <= now].reset_index(drop=True)
+
+    # Clearsky GHI via pvlib (needed for clearsky_ratio feature)
+    loc   = pvlib.location.Location(SG_LAT, SG_LON, tz="Asia/Singapore")
+    times = pd.DatetimeIndex(df["timestamp"], tz="Asia/Singapore")
+    df["ghi_clearsky"] = loc.get_clearsky(times)["ghi"].values
+    return df
+
+
+def extend_with_recent(df: pd.DataFrame) -> pd.DataFrame:
+    """Append live recent hours to the historical CSV dataframe."""
+    recent = fetch_recent_df()
+    if recent is None or recent.empty:
+        return df
+    new = recent[recent["timestamp"] > df["timestamp"].max()]
+    if new.empty:
+        return df
+    print(f"  ✓ Appended {len(new)} recent hours from live API "
+          f"(lookback now ends {new['timestamp'].max()})")
+    return (pd.concat([df, new], ignore_index=True)
+            .sort_values("timestamp").reset_index(drop=True))
+
+
 def _add_engineered_features(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df["clearsky_ratio"] = df["ghi"] / (df["ghi_clearsky"] + 1e-6)
