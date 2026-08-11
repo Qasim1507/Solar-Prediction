@@ -224,14 +224,41 @@ def main(model_fallback=True):
         in_ci  = f["ghi_lower_90"] <= actual <= f["ghi_upper_90"]
         print(f"  {f['horizon']:<8} {original_ghi:>10.1f} {actual:>12.1f} "
               f"{source:>10} {diff:>8.1f} {'yes' if in_ci else 'NO':>10}")
-        results.append({"diff": diff, "in_ci": in_ci, "source": source})
+        results.append({
+            "verified_at":   pd.Timestamp.now(tz="Asia/Singapore")
+                             .strftime("%Y-%m-%d %H:%M"),
+            "forecast_time": forecast["forecast_time_sgt"],
+            "target_time":   f["time_sgt"],
+            "horizon":       f["horizon"],
+            "forecast_wm2":  original_ghi,
+            "actual_wm2":    round(actual, 1),
+            "source":        source,
+            "abs_error_wm2": round(diff, 1),
+            "in_90ci":       in_ci,
+        })
 
     print("-" * 70)
 
     if results:
-        mae  = np.mean([r["diff"] for r in results])
-        rmse = np.sqrt(np.mean([r["diff"] ** 2 for r in results]))
-        cov  = 100 * np.mean([r["in_ci"] for r in results])
+        # ── Append to the running verification log ────────────────────────────
+        log_path = "./verification_log.csv"
+        log_df   = pd.DataFrame(results)
+        # skip rows already logged for this forecast (re-runs)
+        if os.path.exists(log_path):
+            prev   = pd.read_csv(log_path)
+            seen   = set(zip(prev["forecast_time"], prev["horizon"]))
+            log_df = log_df[~log_df.apply(
+                lambda r: (r["forecast_time"], r["horizon"]) in seen, axis=1)]
+            if not log_df.empty:
+                log_df.to_csv(log_path, mode="a", header=False, index=False)
+        else:
+            log_df.to_csv(log_path, index=False)
+        if not log_df.empty:
+            print(f"\n  ✓ Logged {len(log_df)} rows → {log_path}")
+
+        mae  = np.mean([r["abs_error_wm2"] for r in results])
+        rmse = np.sqrt(np.mean([r["abs_error_wm2"] ** 2 for r in results]))
+        cov  = 100 * np.mean([r["in_90ci"] for r in results])
         print(f"\n  📊 Statistics (n={len(results)}):")
         print(f"     MAE:  {mae:.1f} W/m²")
         print(f"     RMSE: {rmse:.1f} W/m²")
