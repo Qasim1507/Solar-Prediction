@@ -37,7 +37,11 @@ from model import (
 warnings.filterwarnings("ignore")
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
-CSV_PATH      = "./data/combined_dataset.csv"
+# Dataset may live in data/ (local) or repo root (RunPod, where data/ is
+# gitignored) — use whichever exists.
+CSV_PATH      = ("./data/combined_dataset.csv"
+                 if os.path.exists("./data/combined_dataset.csv")
+                 else "./combined_dataset.csv")
 MODEL_PATH    = "./best_model.pt"
 STATS_PATH    = "./train_stats.json"
 WEATHER_JSON  = "./datanow/weather/weather_current.json"
