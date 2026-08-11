@@ -31,6 +31,7 @@ from model import (
     extend_with_recent,
     build_lookback_window,
     compute_clearsky_ghi,
+    compute_clearsky_hour_mean,
     denormalise_forecast,
 )
 
@@ -122,9 +123,13 @@ def predict(model_path=MODEL_PATH, csv_path=CSV_PATH, stats_path=STATS_PATH,
     mu_real, lo, hi = denormalise_forecast(mu.cpu().numpy()[0],
                                            sigma.cpu().numpy()[0], train_stats)
 
-    # ── Physics clamp: GHI can never exceed ~110% of clearsky ────────────────
-    # (also forces night forecasts to 0, where clearsky = 0)
-    cs_cap  = 1.1 * np.array(future_cs)
+    # ── Physics clamp: GHI can never exceed ~115% of clearsky ────────────────
+    # Cap uses the PRECEDING-HOUR MEAN clearsky (Open-Meteo's labelling
+    # convention) — the instantaneous value is wrong near sunrise/sunset.
+    # (Still forces true night forecasts to 0.)
+    cs_cap  = 1.15 * np.array([compute_clearsky_hour_mean(now_sgt +
+                                                          timedelta(hours=h))
+                               for h in [1, 2, 3]])
     mu_real = np.minimum(mu_real, cs_cap)
     lo      = np.minimum(lo, cs_cap)
     hi      = np.minimum(hi, cs_cap)
