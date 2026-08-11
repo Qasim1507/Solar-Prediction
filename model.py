@@ -367,6 +367,21 @@ def compute_clearsky_ghi(dt_sgt) -> float:
     return float(cs["ghi"].iloc[0])
 
 
+def compute_clearsky_hour_mean(dt_sgt) -> float:
+    """
+    Mean clearsky GHI over the hour PRECEDING dt_sgt.
+    Open-Meteo labels each hourly value with the end of its averaging
+    window (the value at 18:00 is the 17:00→18:00 mean), so physical
+    caps on forecasts must use this convention — the instantaneous
+    value is badly wrong near sunrise/sunset.
+    """
+    loc   = pvlib.location.Location(SG_LAT, SG_LON, tz="Asia/Singapore")
+    end   = pd.Timestamp(dt_sgt)
+    times = pd.date_range(end - pd.Timedelta(minutes=50), end, freq="10min")
+    cs    = loc.get_clearsky(pd.DatetimeIndex(times))
+    return float(cs["ghi"].mean())
+
+
 def load_historical_df(csv_path: str) -> pd.DataFrame:
     df = pd.read_csv(csv_path)
     df["timestamp"] = pd.to_datetime(df["timestamp"])
