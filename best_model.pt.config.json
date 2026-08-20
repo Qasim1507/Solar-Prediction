@@ -1,0 +1,10 @@
+{
+  "version": "v2",
+  "ablation": null,
+  "backbone": "efficientnet_b2",
+  "lstm_hidden": 128,
+  "num_heads": 8,
+  "hidden_dim": 256,
+  "dropout": 0.15,
+  "n_tabular": 11
+}
