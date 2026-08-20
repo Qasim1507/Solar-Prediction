@@ -117,8 +117,24 @@ def predict(model_path=MODEL_PATH, csv_path=CSV_PATH, stats_path=STATS_PATH,
         import time as _time
         sat_age_h = (_time.time() - os.path.getmtime(SATELLITE_IMG)) / 3600
         if sat_age_h > 2:
-            print(f"  ⚠️  Satellite image is {sat_age_h:.0f}h old (live fetch "
-                  f"failed?) — check JAXA credentials in .env")
+            print(f"  ⚠️  Satellite image is {sat_age_h:.1f}h old — live fetch "
+                  f"may have failed")
+        # Reject a black/flat tile outright: training images never drop below
+        # mean~8 in daylight, so feeding one silently corrupts the forecast.
+        try:
+            from PIL import Image as _Im
+            _a = np.asarray(_Im.open(SATELLITE_IMG).convert("L"),
+                            dtype=np.float32)
+            if 7 <= now_sgt.hour <= 18 and (_a.mean() < 3 or _a.std() < 2):
+                print(f"  ⚠️  Satellite image looks DEAD "
+                      f"(mean={_a.mean():.2f}, std={_a.std():.2f}) in daylight."
+                      f"\n      The image branch of the model is unreliable "
+                      f"for this run — treat the forecast with caution.")
+            else:
+                print(f"  ✓ Image quality OK "
+                      f"(mean={_a.mean():.1f}, std={_a.std():.1f})")
+        except Exception as _e:
+            print(f"  ⚠️  Could not inspect satellite image: {_e}")
     # v2 needs the t-1h / t-2h frames too — passing None here would zero-fill
     # them and destroy the optical-flow signal the model trained on.
     for _p, _lbl in [(SATELLITE_PREV1, "t-1h"), (SATELLITE_PREV2, "t-2h")]:

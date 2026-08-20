@@ -17,3 +17,4 @@ __pycache__/
 
 # Generated artifacts
 repomix-output.xml
+dead_tiles.txt

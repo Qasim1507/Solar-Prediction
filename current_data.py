@@ -93,18 +93,66 @@ class SatelliteCollector:
         target = target.replace(minute=minute, second=0, microsecond=0)
         return target
 
-    def fetch_image(self, date_time=None):
+    # ── Image quality gate ────────────────────────────────────────────────
+    # Measured from the 9,186 training images: mean brightness tracks the sun
+    # (06:00 SGT ≈ 19, 11:00 ≈ 88, 17:00 ≈ 19) and NEVER drops near zero
+    # during daylight. A near-black or flat tile in daylight is a bad fetch,
+    # not weather — feeding it to the model silently corrupts the forecast.
+    MIN_DAYLIGHT_MEAN = 3.0    # below this in daylight = dead tile
+    MIN_DAYLIGHT_STD  = 2.0    # flat tile = no cloud structure
+
+    @staticmethod
+    def validate_tile(img, dt_utc):
+        """Returns (ok: bool, reason: str). Night tiles are legitimately dark."""
+        arr = np.asarray(img.convert("L"), dtype=np.float32)
+        if arr.ndim != 2 or min(arr.shape) < 100:
+            return False, f"bad dimensions {arr.shape}"
+        mean, std = float(arr.mean()), float(arr.std())
+        sgt_hour = (dt_utc + timedelta(hours=8)).hour
+        if 7 <= sgt_hour <= 18:      # daylight — brightness is expected
+            if mean < SatelliteCollector.MIN_DAYLIGHT_MEAN:
+                return False, f"black tile in daylight (mean={mean:.2f})"
+            if std < SatelliteCollector.MIN_DAYLIGHT_STD:
+                return False, f"flat/uniform tile (std={std:.2f})"
+        return True, f"ok (mean={mean:.1f}, std={std:.1f})"
+
+    def fetch_image(self, date_time=None, out_name="himawari_current.png"):
         """
-        Fetch the latest Singapore satellite tile.
-        Primary: NICT public Himawari tile server (no login) — the SAME
-                 source as the training images (data/satellite/).
-        Fallback: JAXA P-Tree FTP (needs JAXA_FTP_USER/PASS in .env).
+        Fetch a validated Singapore tile, trying each configured source in
+        order until one returns an image that passes validate_tile().
+
+        Source order is set by SATELLITE_SOURCES in .env (comma-separated).
+        Default: "nict,jaxa".
         """
-        result = self.fetch_image_nict(date_time)
-        if result:
-            return result
-        print("  NICT fetch failed — trying JAXA FTP fallback...")
-        return self.fetch_image_jaxa(date_time)
+        sources = [s.strip() for s in
+                   os.environ.get("SATELLITE_SOURCES", "nict,jaxa").split(",")
+                   if s.strip()]
+        for src in sources:
+            fn = {"nict": self.fetch_image_nict,
+                  "slider": self.fetch_image_slider,
+                  "gk2a": self.fetch_image_gk2a,
+                  "jaxa": self.fetch_image_jaxa}.get(src)
+            if fn is None:
+                print(f"  ⚠️  Unknown satellite source '{src}' — skipping")
+                continue
+            try:
+                result = fn(date_time, out_name=out_name)
+            except Exception as e:
+                print(f"  ✗ Source '{src}' raised: {e}")
+                result = None
+            if result:
+                return result
+            print(f"  Source '{src}' failed — trying next...")
+
+        # Last resort: reuse the most recent good image rather than a black one
+        stale = f"{self.save_dir}/{out_name}"
+        if os.path.exists(stale):
+            age_h = (time.time() - os.path.getmtime(stale)) / 3600
+            print(f"  ⚠️  ALL SOURCES FAILED — keeping previous image "
+                  f"({age_h:.1f}h old). Forecast will be degraded.")
+            return stale
+        print("  ✗ All sources failed and no previous image available")
+        return None
 
     def fetch_frame_series(self, date_time=None):
         """
@@ -124,47 +172,141 @@ class SatelliteCollector:
                         (1, "himawari_prev1.png"),
                         (2, "himawari_prev2.png")]:
             paths.append(
-                self.fetch_image_nict(date_time - timedelta(hours=h),
-                                      out_name=name))
+                self.fetch_image(date_time - timedelta(hours=h),
+                                 out_name=name))
         got = sum(p is not None for p in paths)
         print(f"  Frame series: {got}/3 frames fetched (t, t-1h, t-2h)")
         return tuple(paths)
 
-    def fetch_image_nict(self, date_time=None, out_name="himawari_current.png"):
-        """Fetch Himawari tile from NICT (public, matches training data)."""
+    def _save_tile(self, img, out_name, source, dt_utc):
+        """Grayscale→RGB (matching training preprocessing) and save."""
+        gray = img.convert("L")
+        img_rgb = Image.merge("RGB", (gray, gray, gray))
+        filename = f"{self.save_dir}/{out_name}"
+        img_rgb.save(filename)
+        print(f"  ✓ [{source}] saved {out_name} "
+              f"({img_rgb.size[0]}x{img_rgb.size[1]}, "
+              f"{dt_utc.strftime('%H:%M')} UTC)")
+        return filename
+
+    def fetch_image_nict(self, date_time=None, out_name="himawari_current.png",
+                         max_attempts=7):
+        """
+        Himawari tile from NICT — the SAME source and preprocessing as the
+        training images, so the model sees the distribution it learned on.
+
+        NICT intermittently publishes dead/black tiles. Rather than accepting
+        one, step back in 10-minute increments (NICT's native cadence) until a
+        tile passes validation, up to ~1 hour.
+        """
         if date_time is None:
             date_time = self.get_latest_timestamp()
-        if date_time.tzinfo is None:
-            date_time = pytz.UTC.localize(date_time)
-        else:
-            date_time = date_time.astimezone(pytz.UTC)
+        date_time = (pytz.UTC.localize(date_time) if date_time.tzinfo is None
+                     else date_time.astimezone(pytz.UTC))
 
-        # Same tile as himawari_data.py: level 4d, row 1, col 1 (Singapore)
-        date_str = date_time.strftime("%Y/%m/%d/%H%M00")
-        url = (f"https://himawari8-dl.nict.go.jp/himawari8/img/D531106"
-               f"/4d/550/{date_str}_1_1.png")
-        print(f"Fetching Satellite Image via NICT (public)")
-        print(f"  Time (UTC): {date_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"  [nict] target {date_time.strftime('%Y-%m-%d %H:%M')} UTC")
+        for attempt in range(max_attempts):
+            t = date_time - timedelta(minutes=10 * attempt)
+            # Same tile as himawari_data.py: level 4d, tile (1,1) = Singapore
+            url = (f"https://himawari8-dl.nict.go.jp/himawari8/img/D531106"
+                   f"/4d/550/{t.strftime('%Y/%m/%d/%H%M00')}_1_1.png")
+            try:
+                resp = requests.get(url, verify=False, timeout=30)
+                if resp.status_code != 200:
+                    print(f"    · {t.strftime('%H:%M')} → HTTP {resp.status_code}")
+                    continue
+                img = Image.open(BytesIO(resp.content))
+                ok, reason = self.validate_tile(img, t)
+                if not ok:
+                    print(f"    · {t.strftime('%H:%M')} → rejected: {reason}")
+                    continue
+                if attempt:
+                    print(f"    (used {attempt*10} min older frame)")
+                return self._save_tile(img, out_name, "nict", t)
+            except Exception as e:
+                print(f"    · {t.strftime('%H:%M')} → error: {str(e)[:60]}")
+        print(f"  ✗ [nict] no valid tile in the last "
+              f"{max_attempts*10} minutes")
+        return None
 
-        try:
-            resp = requests.get(url, verify=False, timeout=30)
-            if resp.status_code != 200:
-                print(f"  ✗ NICT returned status {resp.status_code}")
-                return None
-            img = Image.open(BytesIO(resp.content))
-            # Grayscale → RGB, matching training preprocessing exactly
-            gray = img.convert("L")
-            img_rgb = Image.merge("RGB", (gray, gray, gray))
-            filename = f"{self.save_dir}/{out_name}"
-            img_rgb.save(filename)
-            print(f"✓ Satellite image saved to {filename} "
-                  f"(size: {img_rgb.size}, grayscale-RGB)")
-            return filename
-        except Exception as e:
-            print(f"  ✗ NICT error: {e}")
-            return None
+    # ── Alternative sources ───────────────────────────────────────────────
+    # ⚠️  UNVERIFIED: the two providers below are wired up but have NOT been
+    # tested against a live endpoint. Enable one by setting, in .env:
+    #     SATELLITE_SOURCES=nict,slider,jaxa
+    # and check the printed output. If a URL pattern has changed, fix it here.
+    #
+    # ⚠️  IMPORTANT — GK-2A is a DIFFERENT SATELLITE (KMA, 128.2°E), not
+    # Himawari. The model was trained exclusively on Himawari NICT tiles, so
+    # GK-2A imagery is out-of-distribution: different sensor, resolution,
+    # viewing geometry and calibration. Using it WITHOUT retraining the CNN on
+    # GK-2A images will likely make forecasts worse, not better. Prefer
+    # 'slider' (a different provider of the SAME Himawari data) if you just
+    # want redundancy.
 
-    def fetch_image_jaxa(self, date_time=None):
+    def fetch_image_slider(self, date_time=None,
+                           out_name="himawari_current.png", max_attempts=4):
+        """RAMMB/CIRA SLIDER — different PROVIDER, same Himawari sensor."""
+        if date_time is None:
+            date_time = self.get_latest_timestamp()
+        date_time = (pytz.UTC.localize(date_time) if date_time.tzinfo is None
+                     else date_time.astimezone(pytz.UTC))
+        base = "https://rammb-slider.cira.colostate.edu/data/imagery"
+        for attempt in range(max_attempts):
+            t = date_time - timedelta(minutes=10 * attempt)
+            url = (f"{base}/{t.strftime('%Y%m%d')}/himawari---full_disk/"
+                   f"geocolor/{t.strftime('%Y%m%d%H%M%S')}/02/003_002.png")
+            try:
+                resp = requests.get(url, timeout=30)
+                if resp.status_code != 200:
+                    print(f"    · [slider] {t.strftime('%H:%M')} → "
+                          f"HTTP {resp.status_code}")
+                    continue
+                img = Image.open(BytesIO(resp.content))
+                ok, reason = self.validate_tile(img, t)
+                if not ok:
+                    print(f"    · [slider] rejected: {reason}")
+                    continue
+                return self._save_tile(img, out_name, "slider", t)
+            except Exception as e:
+                print(f"    · [slider] error: {str(e)[:60]}")
+        return None
+
+    def fetch_image_gk2a(self, date_time=None,
+                         out_name="himawari_current.png", max_attempts=3):
+        """
+        GK-2A (KMA, 128.2°E) via NMSC public imagery — a genuinely different
+        satellite. See the domain-shift warning above: retrain before relying
+        on this for forecasts.
+        """
+        if date_time is None:
+            date_time = self.get_latest_timestamp()
+        date_time = (pytz.UTC.localize(date_time) if date_time.tzinfo is None
+                     else date_time.astimezone(pytz.UTC))
+        base = "https://nmsc.kma.go.kr/IMG/GK2A/AMI/PRIMARY/L1B/COMPLETE/EA"
+        for attempt in range(max_attempts):
+            t = date_time - timedelta(minutes=10 * attempt)
+            url = (f"{base}/{t.strftime('%Y%m/%d/%H')}/"
+                   f"gk2a_ami_le1b_vi006_ea020lc_{t.strftime('%Y%m%d%H%M')}.srv.png")
+            try:
+                resp = requests.get(url, timeout=30)
+                if resp.status_code != 200:
+                    print(f"    · [gk2a] {t.strftime('%H:%M')} → "
+                          f"HTTP {resp.status_code}")
+                    continue
+                img = Image.open(BytesIO(resp.content))
+                ok, reason = self.validate_tile(img, t)
+                if not ok:
+                    print(f"    · [gk2a] rejected: {reason}")
+                    continue
+                print("  ⚠️  GK-2A is a different satellite than the model was "
+                      "trained on — expect degraded accuracy")
+                return self._save_tile(img, out_name, "gk2a", t)
+            except Exception as e:
+                print(f"    · [gk2a] error: {str(e)[:60]}")
+        return None
+
+    def fetch_image_jaxa(self, date_time=None,
+                         out_name="himawari_current.png"):
         import ftplib
         import netCDF4 as nc
 
@@ -256,7 +398,7 @@ class SatelliteCollector:
 
             # Save as PNG
             img = Image.fromarray((tile_rgb * 255).astype(np.uint8))
-            filename = f"{self.save_dir}/himawari_current.png"
+            filename = f"{self.save_dir}/{out_name}"
             img.save(filename)
             print(f"✓ Satellite image saved to {filename} (shape: {tile.shape})")
             return filename
