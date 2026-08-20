@@ -106,7 +106,31 @@ class SatelliteCollector:
         print("  NICT fetch failed — trying JAXA FTP fallback...")
         return self.fetch_image_jaxa(date_time)
 
-    def fetch_image_nict(self, date_time=None):
+    def fetch_frame_series(self, date_time=None):
+        """
+        Fetch the 3 hourly frames the v2 model expects: t, t-1h, t-2h.
+
+        Training fed the model three CONSECUTIVE hourly frames (and computed
+        optical flow between them). Fetching only the current frame and
+        zero-filling t-1/t-2 is a train/inference mismatch that destroys the
+        flow signal, so always fetch the series for inference.
+
+        Returns (current_path, prev1_path, prev2_path); entries may be None.
+        """
+        if date_time is None:
+            date_time = self.get_latest_timestamp()
+        paths = []
+        for h, name in [(0, "himawari_current.png"),
+                        (1, "himawari_prev1.png"),
+                        (2, "himawari_prev2.png")]:
+            paths.append(
+                self.fetch_image_nict(date_time - timedelta(hours=h),
+                                      out_name=name))
+        got = sum(p is not None for p in paths)
+        print(f"  Frame series: {got}/3 frames fetched (t, t-1h, t-2h)")
+        return tuple(paths)
+
+    def fetch_image_nict(self, date_time=None, out_name="himawari_current.png"):
         """Fetch Himawari tile from NICT (public, matches training data)."""
         if date_time is None:
             date_time = self.get_latest_timestamp()
@@ -131,7 +155,7 @@ class SatelliteCollector:
             # Grayscale → RGB, matching training preprocessing exactly
             gray = img.convert("L")
             img_rgb = Image.merge("RGB", (gray, gray, gray))
-            filename = f"{self.save_dir}/himawari_current.png"
+            filename = f"{self.save_dir}/{out_name}"
             img_rgb.save(filename)
             print(f"✓ Satellite image saved to {filename} "
                   f"(size: {img_rgb.size}, grayscale-RGB)")
@@ -285,8 +309,13 @@ class CurrentDataCollector:
         # 2. Fetch satellite image
         print("🛰️  Fetching Satellite Image...")
         print("-" * 70)
-        satellite_file = self.satellite_collector.fetch_image(
+        # Fetch t, t-1h, t-2h (v2 model needs the multi-frame stack)
+        frames = self.satellite_collector.fetch_frame_series(
             date_time=sat_datetime)
+        satellite_file = frames[0]
+        if satellite_file is None:   # NICT series failed → JAXA single-frame
+            satellite_file = self.satellite_collector.fetch_image_jaxa(
+                date_time=sat_datetime)
         
         # 3. Create combined metadata
         metadata = {

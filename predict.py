@@ -47,6 +47,8 @@ MODEL_PATH    = "./best_model.pt"
 STATS_PATH    = "./train_stats.json"
 WEATHER_JSON  = "./datanow/weather/weather_current.json"
 SATELLITE_IMG = "./datanow/satellite/himawari_current.png"
+SATELLITE_PREV1 = "./datanow/satellite/himawari_prev1.png"
+SATELLITE_PREV2 = "./datanow/satellite/himawari_prev2.png"
 
 
 def predict(model_path=MODEL_PATH, csv_path=CSV_PATH, stats_path=STATS_PATH,
@@ -117,8 +119,15 @@ def predict(model_path=MODEL_PATH, csv_path=CSV_PATH, stats_path=STATS_PATH,
         if sat_age_h > 2:
             print(f"  ⚠️  Satellite image is {sat_age_h:.0f}h old (live fetch "
                   f"failed?) — check JAXA credentials in .env")
+    # v2 needs the t-1h / t-2h frames too — passing None here would zero-fill
+    # them and destroy the optical-flow signal the model trained on.
+    for _p, _lbl in [(SATELLITE_PREV1, "t-1h"), (SATELLITE_PREV2, "t-2h")]:
+        if not os.path.exists(_p):
+            print(f"  ⚠️  Previous frame {_lbl} missing ({_p}) — optical flow "
+                  f"will be degraded for this run")
     mu, sigma = run_model(model, tabular_seq, SATELLITE_IMG, future_clearsky,
-                          df, now_sgt, device)
+                          df, now_sgt, device,
+                          prev_paths=(SATELLITE_PREV1, SATELLITE_PREV2))
 
     mu_real, lo, hi = denormalise_forecast(mu.cpu().numpy()[0],
                                            sigma.cpu().numpy()[0], train_stats)
