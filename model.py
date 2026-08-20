@@ -67,7 +67,7 @@ class TemporalSelfAttention(nn.Module):
 
 
 class BiLSTMEncoder(nn.Module):
-    def __init__(self, input_dim=11, hidden_dim=128):
+    def __init__(self, input_dim=len(TABULAR_COLS), hidden_dim=128):
         super().__init__()
         self.lstm = nn.LSTM(input_dim, hidden_dim, num_layers=2,
                             batch_first=True, bidirectional=True, dropout=0.1)
@@ -81,19 +81,22 @@ class BiLSTMEncoder(nn.Module):
 
 class EfficientNetB2Encoder(nn.Module):
     """
-    EfficientNetB2 feature extractor (last stage: 352 ch, 7x7).
+    EfficientNet feature extractor (last stage only).
+    Channel count is read from the backbone, never hardcoded:
+        efficientnet_b2 → 352 ch,  efficientnet_b0 → 320 ch  (both 7x7)
     Optionally initialised from a SwimSeg-pretrained encoder checkpoint.
     """
     def __init__(self, pretrained_encoder_path: str = None,
-                 imagenet_fallback: bool = False):
+                 imagenet_fallback: bool = False,
+                 backbone: str = "efficientnet_b2"):
         super().__init__()
         use_imagenet = imagenet_fallback and (
             pretrained_encoder_path is None or
             not os.path.exists(pretrained_encoder_path))
-        self.backbone     = timm.create_model("efficientnet_b2",
+        self.backbone     = timm.create_model(backbone,
                                               pretrained=use_imagenet,
                                               features_only=True)
-        self.img_channels = 352
+        self.img_channels = self.backbone.feature_info.channels()[-1]
 
         if (pretrained_encoder_path is not None and
                 os.path.exists(pretrained_encoder_path)):
@@ -180,20 +183,69 @@ class PhysicsGatedFusionModel(nn.Module):
         return mu, sigma
 
 
+def save_checkpoint(model: nn.Module, path: str):
+    """
+    Save weights plus a sidecar `<path>.config.json` describing the
+    architecture. Needed because num_heads cannot be recovered from tensor
+    shapes — loading with the wrong head count silently produces garbage
+    rather than raising an error.
+    """
+    torch.save(model.state_dict(), path)
+    cfg = getattr(model, "cfg", {"version": "v1"})
+    with open(path + ".config.json", "w") as f:
+        json.dump(cfg, f, indent=2)
+
+
 def load_model(model_path: str, device: torch.device) -> nn.Module:
     """
     Load a trained checkpoint ready for inference.
-    Auto-detects the architecture from the checkpoint keys:
-      - 'global_enc.*' present  → v2 (PhysicsGatedFusionModelV2)
-      - otherwise               → v1 (PhysicsGatedFusionModel)
+
+    Architecture resolution order:
+      1. `<model_path>.config.json` sidecar (written by save_checkpoint)
+      2. Inferred from tensor shapes (assumes num_heads=8 — warns)
+    v1 vs v2 is detected from the presence of 'global_enc.*' keys.
     """
     state = torch.load(model_path, map_location=device, weights_only=True)
     is_v2 = any(k.startswith("global_enc.") for k in state)
-    model = (PhysicsGatedFusionModelV2() if is_v2
-             else PhysicsGatedFusionModel()).to(device)
+
+    if not is_v2:
+        model = PhysicsGatedFusionModel().to(device)
+        model.load_state_dict(state)
+        model.eval()
+        print("  ✓ Detected v1 architecture")
+        return model
+
+    cfg_path = model_path + ".config.json"
+    if os.path.exists(cfg_path):
+        with open(cfg_path) as f:
+            cfg = json.load(f)
+        kwargs = {k: cfg[k] for k in
+                  ("backbone", "lstm_hidden", "num_heads", "hidden_dim",
+                   "dropout", "n_tabular", "ablation") if k in cfg}
+        print(f"  ✓ Detected v2 architecture (config: {cfg.get('backbone')}, "
+              f"D={cfg.get('hidden_dim')}, heads={cfg.get('num_heads')}, "
+              f"lstm={cfg.get('lstm_hidden')})")
+    else:
+        # Infer what the shapes allow; num_heads is unknowable → assume 8.
+        D, img_ch   = state["cross_attn.kv_proj.weight"].shape
+        ih          = state["temporal.lstm.weight_ih_l0"].shape
+        kwargs = {
+            "hidden_dim":  int(D),
+            "lstm_hidden": int(ih[0] // 4),
+            "n_tabular":   int(ih[1]),
+            "backbone":    "efficientnet_b0" if int(img_ch) == 320
+                           else "efficientnet_b2",
+            "num_heads":   8,
+        }
+        print(f"  ✓ Detected v2 architecture (inferred: {kwargs['backbone']}, "
+              f"D={kwargs['hidden_dim']}, lstm={kwargs['lstm_hidden']})")
+        print(f"  ⚠️  No {os.path.basename(cfg_path)} — assuming num_heads=8. "
+              f"If this model was trained with a different head count, its "
+              f"predictions will be wrong. Re-save with save_checkpoint().")
+
+    model = PhysicsGatedFusionModelV2(**kwargs).to(device)
     model.load_state_dict(state)
     model.eval()
-    print(f"  ✓ Detected {'v2' if is_v2 else 'v1'} architecture")
     return model
 
 
@@ -235,38 +287,64 @@ class PhysicsGatedFusionModelV2(nn.Module):
     gate_features  : (B, 4)  [clearsky_ratio, cloud_cover, flow_vx, flow_vy]
     """
     def __init__(self, ablation=None, pretrained_encoder_path=None,
-                 imagenet_init=False):
-        # imagenet_init: only set True when training from scratch; leave False
-        # when loading a full checkpoint (avoids a pointless weight download).
+                 imagenet_init=False, backbone="efficientnet_b2",
+                 lstm_hidden=128, num_heads=8, hidden_dim=256,
+                 dropout=0.15, n_tabular=None):
+        """
+        imagenet_init : True only when training from scratch; False when
+                        loading a full checkpoint (skips a weight download).
+        backbone      : "efficientnet_b2" (default) or "efficientnet_b0"
+        lstm_hidden   : BiLSTM hidden size per direction (128 → 64 to shrink)
+        num_heads     : cross-attention heads (8 → 4 to shrink)
+        hidden_dim    : cross-attention / fusion width D (256 → 128 to shrink)
+        n_tabular     : number of tabular features; defaults to len(TABULAR_COLS).
+                        Set explicitly when ablating features (e.g. dropping
+                        ghi_lag1) so the LSTM input width matches the data.
+
+        DEFAULTS REPRODUCE THE ORIGINAL ARCHITECTURE EXACTLY, so existing
+        checkpoints keep loading. Override them to train a smaller model.
+        """
         super().__init__()
         self.ablation = ablation
-        input_dim = len(TABULAR_COLS)
+        input_dim = n_tabular if n_tabular is not None else len(TABULAR_COLS)
 
-        self.temporal = BiLSTMEncoder(input_dim=input_dim)
+        self.temporal = BiLSTMEncoder(input_dim=input_dim,
+                                      hidden_dim=lstm_hidden)
         self.temp_dim = self.temporal.out_dim
 
         self.global_enc = EfficientNetB2Encoder(pretrained_encoder_path,
-                                                imagenet_fallback=imagenet_init)
+                                                imagenet_fallback=imagenet_init,
+                                                backbone=backbone)
         self.roi_enc    = EfficientNetB2Encoder(pretrained_encoder_path,
-                                                imagenet_fallback=imagenet_init)
-        self.img_ch     = 352
-        self.D          = 256
+                                                imagenet_fallback=imagenet_init,
+                                                backbone=backbone)
+        self.img_ch     = self.global_enc.img_channels
+        self.D          = hidden_dim
 
         self.cross_attn = MultiHeadCrossAttention(self.temp_dim, self.img_ch,
-                                                  self.D, num_heads=8)
+                                                  self.D, num_heads=num_heads)
         self.gate = nn.Sequential(
-            nn.Linear(4, 32), nn.ReLU(),
-            nn.Linear(32, 1), nn.Sigmoid()
+            nn.Linear(4, self.D // 8), nn.ReLU(),
+            nn.Linear(self.D // 8, 1), nn.Sigmoid()
         )
         in_dim = self.D if ablation != "concat" else self.D * 2
         self.enrich = nn.Sequential(
-            nn.Linear(in_dim + 3, self.D), nn.ReLU(), nn.Dropout(0.15)
+            nn.Linear(in_dim + 3, self.D), nn.ReLU(), nn.Dropout(dropout)
         )
+        h1, h2 = self.D // 2, self.D // 4
         self.head = nn.Sequential(
-            nn.Linear(self.D, 128), nn.LayerNorm(128), nn.GELU(), nn.Dropout(0.15),
-            nn.Linear(128, 64),    nn.LayerNorm(64),  nn.GELU(),
-            nn.Linear(64, 6),
+            nn.Linear(self.D, h1), nn.LayerNorm(h1), nn.GELU(), nn.Dropout(dropout),
+            nn.Linear(h1, h2),     nn.LayerNorm(h2), nn.GELU(),
+            nn.Linear(h2, 6),
         )
+        # Recorded so save_checkpoint() can write a sidecar config — num_heads
+        # is NOT recoverable from tensor shapes, so it must be persisted.
+        self.cfg = {
+            "version": "v2", "ablation": ablation, "backbone": backbone,
+            "lstm_hidden": lstm_hidden, "num_heads": num_heads,
+            "hidden_dim": hidden_dim, "dropout": dropout,
+            "n_tabular": input_dim,
+        }
         self.freeze_cnn()
 
     def freeze_cnn(self):
@@ -582,6 +660,49 @@ def run_model(model, tabular_seq, sat_path, future_clearsky,
             gate  = compute_gate_features(df, reference_time).to(device)
             mu, sigma = model(tabular_seq, image, future_clearsky, gate)
     return mu, sigma
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# BASELINES — a model is only "good" if it beats these
+# ══════════════════════════════════════════════════════════════════════════════
+
+def persistence_forecast(ghi_now, horizons=3):
+    """
+    Persistence: GHI at t+h equals GHI at t.
+    The standard reference for short-horizon irradiance forecasting — any
+    model that cannot beat it has learned nothing useful.
+    """
+    ghi_now = np.asarray(ghi_now, dtype=np.float32)
+    return np.repeat(ghi_now[:, None], horizons, axis=1)
+
+
+def smart_persistence_forecast(ghi_now, cs_now, cs_future):
+    """
+    Smart (clear-sky) persistence: holds the CLEAR-SKY INDEX constant rather
+    than raw GHI, so it accounts for the sun's known movement.
+        ghi(t+h) = ghi(t)/cs(t) * cs(t+h)
+    This is the honest baseline for a solar model — plain persistence flatters
+    you at midday and punishes you near sunrise/sunset.
+
+    ghi_now, cs_now : (N,)      cs_future : (N, H)
+    """
+    ghi_now   = np.asarray(ghi_now,   dtype=np.float32)
+    cs_now    = np.asarray(cs_now,    dtype=np.float32)
+    cs_future = np.asarray(cs_future, dtype=np.float32)
+    k = np.clip(ghi_now / (cs_now + 1e-6), 0, 1.5)     # clear-sky index
+    return np.clip(k[:, None] * cs_future, 0, None)
+
+
+def skill_score(mae_model: float, mae_reference: float) -> float:
+    """
+    Forecast skill vs a reference baseline.
+      > 0 : better than the baseline (1.0 = perfect)
+      = 0 : no better than the baseline
+      < 0 : WORSE than the baseline
+    """
+    if mae_reference <= 0:
+        return float("nan")
+    return 1.0 - (mae_model / mae_reference)
 
 
 def denormalise_forecast(mu_np, sigma_np, train_stats: dict):
