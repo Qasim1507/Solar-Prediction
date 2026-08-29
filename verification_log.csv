@@ -1,0 +1,4 @@
+verified_at,forecast_time,target_time,horizon,forecast_wm2,actual_wm2,source,abs_error_wm2,in_90ci
+2026-08-21 11:04,2026-08-21 08:00,2026-08-21 09:00,t+1h,148.4,225.0,measured,76.6,True
+2026-08-21 11:04,2026-08-21 08:00,2026-08-21 10:00,t+2h,351.9,449.0,measured,97.1,True
+2026-08-21 11:04,2026-08-21 08:00,2026-08-21 11:00,t+3h,512.6,636.0,measured,123.4,True
