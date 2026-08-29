@@ -1,0 +1,223 @@
+{
+  "main": {
+    "id": "75d239385c8586fe",
+    "type": "split",
+    "children": [
+      {
+        "id": "bb09ec3e005913b3",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "2dd4d87fda92fbb7",
+            "type": "leaf",
+            "state": {
+              "type": "empty",
+              "state": {},
+              "icon": "lucide-file",
+              "title": "New tab"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "e02b221d38fca023",
+    "type": "split",
+    "children": [
+      {
+        "id": "b52bbe901c71ce78",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "f0b5695c7ef69ea6",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Files"
+            }
+          },
+          {
+            "id": "eefb2f1245ed0cf2",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Search"
+            }
+          },
+          {
+            "id": "287aba511258c7bc",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-bookmark",
+              "title": "Bookmarks"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "0d6ca61697de3e98",
+    "type": "split",
+    "children": [
+      {
+        "id": "11d07fba8b33fdd5",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "39e25051ed772e00",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Backlinks"
+            }
+          },
+          {
+            "id": "dc0e7a83b7366ac2",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Outgoing links"
+            }
+          },
+          {
+            "id": "6f5fd799444e832c",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
+          },
+          {
+            "id": "a5382666fcc37d9e",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "All properties"
+            }
+          },
+          {
+            "id": "f139c257ca52d9d1",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Outline"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Open quick switcher": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:Open today's daily note": false,
+      "templates:Insert template": false,
+      "command-palette:Open command palette": false,
+      "bases:Create new base": false
+    }
+  },
+  "active": "2dd4d87fda92fbb7",
+  "lastOpenFiles": [
+    "03 Projects/Solar GHI Forecasting/Solar GHI Forecasting.md",
+    "03 Projects/Solar GHI Forecasting/Code map.md",
+    "03 Projects/Solar GHI Forecasting/Architecture/Temporal branch.md",
+    "03 Projects/Solar GHI Forecasting/Architecture/Physics gate.md",
+    "03 Projects/Solar GHI Forecasting/Architecture/Model architecture.md",
+    "03 Projects/Solar GHI Forecasting/Architecture/Image branch.md",
+    "02 Daily/2026-08-24.md",
+    "03 Projects/Solar GHI Forecasting/Issues/Open issues.md",
+    "03 Projects/Solar GHI Forecasting/Issues/Next actions.md",
+    "03 Projects/Solar GHI Forecasting/Issues/Limitations.md",
+    "03 Projects/Solar GHI Forecasting/Issues/ISSUE-TEST18 Test set collapsed to 18 samples.md",
+    "03 Projects/Solar GHI Forecasting/Issues/ISSUE-E4 Single-season test set.md",
+    "03 Projects/Solar GHI Forecasting/Issues/ISSUE-E3 No CRPS.md",
+    "03 Projects/Solar GHI Forecasting/Issues/ISSUE-E2 No Diebold-Mariano test.md",
+    "03 Projects/Solar GHI Forecasting/Issues/ISSUE-E1 Single seed.md",
+    "03 Projects/Solar GHI Forecasting/Issues/ISSUE-D6 CNN-only ablation mislabeled.md",
+    "03 Projects/Solar GHI Forecasting/Issues/ISSUE-D5 Reanalysis labelled measured.md",
+    "03 Projects/Solar GHI Forecasting/Issues/ISSUE-D3 NaN batches uncounted.md",
+    "03 Projects/Solar GHI Forecasting/Issues/ISSUE-D2 future_clearsky unnormalised.md",
+    "03 Projects/Solar GHI Forecasting/Issues/ISSUE-D1 load_model could not load concat checkpoint.md",
+    "03 Projects/Solar GHI Forecasting/Issues/ISSUE-C3 Placeholder frames in training cache.md",
+    "03 Projects/Solar GHI Forecasting/Issues/ISSUE-C2 Overnight gap.md",
+    "03 Projects/Solar GHI Forecasting/Issues/ISSUE-C1 Clear-sky time convention.md",
+    "03 Projects/Solar GHI Forecasting/Issues/ISSUE-B6 Live weather fetched but unused.md",
+    "03 Projects/Solar GHI Forecasting/Issues/ISSUE-B5 Lookback window night contamination.md",
+    "03 Projects/Solar GHI Forecasting/Issues/ISSUE-B4 Gate cloud cover synthesised.md",
+    "03 Projects/Solar GHI Forecasting/Issues",
+    "99 Templates",
+    "06 Archive",
+    "05 Resources",
+    "04 Areas",
+    "02 Daily",
+    "03 Projects/Solar GHI Forecasting/Experiments",
+    "03 Projects/Solar GHI Forecasting/Deployment",
+    "03 Projects/Solar GHI Forecasting/Defence",
+    "03 Projects/Solar GHI Forecasting/Data"
+  ]
+}
