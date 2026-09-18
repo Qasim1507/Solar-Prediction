@@ -10,6 +10,9 @@ from io import BytesIO
 import pytz
 import numpy as np
 
+# Single source of truth for frame spacing, shared with the training pipeline.
+from combined_dataset import FRAME_OFFSETS_MINUTES
+
 
 def _load_env(path=".env"):
     """Minimal .env loader (no external dependency)."""
@@ -162,26 +165,30 @@ class SatelliteCollector:
 
     def fetch_frame_series(self, date_time=None):
         """
-        Fetch the 3 hourly frames the v2 model expects: t, t-1h, t-2h.
+        Fetch the frame series the v2 model expects: t, t-10min, t-20min.
 
-        Training fed the model three CONSECUTIVE hourly frames (and computed
-        optical flow between them). Fetching only the current frame and
-        zero-filling t-1/t-2 is a train/inference mismatch that destroys the
+        The offsets come from combined_dataset.FRAME_OFFSETS_MINUTES so that
+        training and inference cannot drift apart. Training fed the model
+        three frames at Himawari's native 10-minute cadence and computed
+        optical flow between them; fetching a different spacing (or
+        zero-filling t-1/t-2) is a train/inference mismatch that destroys the
         flow signal, so always fetch the series for inference.
 
         Returns (current_path, prev1_path, prev2_path); entries may be None.
         """
         if date_time is None:
             date_time = self.get_latest_timestamp()
+        names = ["himawari_current.png", "himawari_prev1.png",
+                 "himawari_prev2.png"]
         paths = []
-        for h, name in [(0, "himawari_current.png"),
-                        (1, "himawari_prev1.png"),
-                        (2, "himawari_prev2.png")]:
+        for offset, name in zip(FRAME_OFFSETS_MINUTES, names):
             paths.append(
-                self.fetch_image(date_time - timedelta(hours=h),
+                self.fetch_image(date_time - timedelta(minutes=offset),
                                  out_name=name))
         got = sum(p is not None for p in paths)
-        print(f"  Frame series: {got}/3 frames fetched (t, t-1h, t-2h)")
+        spacing = ", ".join(f"t-{o}min" if o else "t"
+                            for o in FRAME_OFFSETS_MINUTES)
+        print(f"  Frame series: {got}/{len(names)} frames fetched ({spacing})")
         return tuple(paths)
 
     def _save_tile(self, img, out_name, source, dt_utc):

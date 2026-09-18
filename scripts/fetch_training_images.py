@@ -3,12 +3,21 @@
 fetch_training_images.py — download only the scans the training set uses.
 
 data/combined_dataset.csv is hourly, while the Himawari archive holds a scan
-every 10 minutes. Training therefore touches 9,843 images, not the 76,886 a
-full-range download produces: ~2.4 GB instead of ~51 GB.
+every 10 minutes. Training therefore touches a small fraction of the 76,886
+images a full-range download produces.
 
-This reads the image_path column and fetches exactly those timestamps,
-reusing himawari_aws.extract_scan (same crop, same output, byte-identical).
-Resumable: scans already on disk are skipped.
+Each row feeds the model a frame series — t, t-10min, t-20min, per
+combined_dataset.FRAME_OFFSETS_MINUTES — so this fetches those offsets around
+every timestamp in the image_path column: ~29,500 scans, ~7 GB, well under the
+51 GB full range.
+
+The offsets are derived from the timestamps rather than read from the
+image_path_prev* columns, so this works on a CSV built before those columns
+existed — which is the point, since the prev frames must be on disk before
+combined_dataset.py can match them.
+
+Uses himawari_aws.extract_scan, so output is byte-identical to a full
+download. Resumable: scans already on disk are skipped.
 
     python scripts/fetch_training_images.py
     python scripts/fetch_training_images.py --csv data/combined_dataset.csv --workers 32
@@ -19,25 +28,29 @@ import os
 import re
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
+from datetime import datetime, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pandas as pd
 
+from combined_dataset import FRAME_OFFSETS_MINUTES
 from himawari_aws import extract_scan
 
 STAMP = re.compile(r"himawari_sg_(\d{8})_(\d{6})\.png$")
 
 
-def timestamps_from_csv(csv_path: str):
-    """Parse the scan times referenced by the dataset's image_path column."""
+def timestamps_from_csv(csv_path: str, offsets=FRAME_OFFSETS_MINUTES):
+    """Scan times the dataset needs: each image_path, expanded by the offsets."""
     col = pd.read_csv(csv_path, usecols=["image_path"])["image_path"].dropna()
-    out = []
+    out = set()
     for p in col.unique():
         m = STAMP.search(str(p))
-        if m:
-            out.append(datetime.strptime(m.group(1) + m.group(2), "%Y%m%d%H%M%S"))
+        if not m:
+            continue
+        t = datetime.strptime(m.group(1) + m.group(2), "%Y%m%d%H%M%S")
+        for off in offsets:
+            out.add(t - timedelta(minutes=off))
     return sorted(out)
 
 
@@ -51,9 +64,10 @@ def main():
     times = timestamps_from_csv(args.csv)
     if not times:
         raise SystemExit(f"No himawari_sg_*.png timestamps found in {args.csv}")
+    spacing = ", ".join(f"t-{o}min" if o else "t" for o in FRAME_OFFSETS_MINUTES)
     print(f"{len(times):,} scans referenced by {args.csv} "
-          f"({times[0]:%Y-%m-%d} .. {times[-1]:%Y-%m-%d}), {args.workers} workers",
-          flush=True)
+          f"({times[0]:%Y-%m-%d} .. {times[-1]:%Y-%m-%d})", flush=True)
+    print(f"  frame series: {spacing} | {args.workers} workers", flush=True)
 
     counts = {"ok": 0, "skip": 0, "missing": 0, "error": 0}
     with ThreadPoolExecutor(max_workers=args.workers) as ex:
