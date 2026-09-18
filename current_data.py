@@ -3,6 +3,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 import json
 import os
+import shutil
 import time
 from PIL import Image
 from io import BytesIO
@@ -74,6 +75,11 @@ class WeatherCollector:
         return collected_data, filename
 
 
+def satellite_sources():
+    return [s.strip() for s in
+            os.environ.get("SATELLITE_SOURCES", "aws").split(",") if s.strip()]
+
+
 class SatelliteCollector:
     def __init__(self, save_dir="datanow/satellite"):
         self.ftp_host = "ftp.ptree.jaxa.jp"
@@ -122,16 +128,16 @@ class SatelliteCollector:
         order until one returns an image that passes validate_tile().
 
         Source order is set by SATELLITE_SOURCES in .env (comma-separated).
-        Default: "nict,jaxa".
+        Default: "aws" -- the same NOAA crops as data/satellite_aws, which the
+        model is trained on. The other sources produce a different composite.
         """
-        sources = [s.strip() for s in
-                   os.environ.get("SATELLITE_SOURCES", "nict,jaxa").split(",")
-                   if s.strip()]
+        sources = satellite_sources()
         for src in sources:
             fn = {"nict": self.fetch_image_nict,
                   "slider": self.fetch_image_slider,
                   "gk2a": self.fetch_image_gk2a,
-                  "jaxa": self.fetch_image_jaxa}.get(src)
+                  "jaxa": self.fetch_image_jaxa,
+                  "aws": self.fetch_image_aws}.get(src)
             if fn is None:
                 print(f"  ⚠️  Unknown satellite source '{src}' — skipping")
                 continue
@@ -192,8 +198,8 @@ class SatelliteCollector:
     def fetch_image_nict(self, date_time=None, out_name="himawari_current.png",
                          max_attempts=7):
         """
-        Himawari tile from NICT — the SAME source and preprocessing as the
-        training images, so the model sees the distribution it learned on.
+        Himawari tile from NICT — LEGACY source of the old training images.
+        Tile 4d 1_1 covers the Philippines, not Singapore; use "aws" instead.
 
         NICT intermittently publishes dead/black tiles. Rather than accepting
         one, step back in 10-minute increments (NICT's native cadence) until a
@@ -227,6 +233,46 @@ class SatelliteCollector:
                 print(f"    · {t.strftime('%H:%M')} → error: {str(e)[:60]}")
         print(f"  ✗ [nict] no valid tile in the last "
               f"{max_attempts*10} minutes")
+        return None
+
+    def fetch_image_aws(self, date_time=None, out_name="himawari_current.png",
+                        max_attempts=4):
+        """
+        Singapore crop built from NOAA's raw Himawari archive on AWS
+        (himawari_aws.py). Only use with a model trained on those crops —
+        the composite differs from the NICT tiles. NOAA posts scans
+        ~15-20 min late, so step back in 10-minute increments if needed.
+        """
+        from himawari_aws import extract_scan
+
+        if date_time is None:
+            date_time = self.get_latest_timestamp()
+        date_time = (date_time.astimezone(pytz.UTC) if date_time.tzinfo
+                     else pytz.UTC.localize(date_time))
+        date_time = date_time.replace(minute=date_time.minute // 10 * 10,
+                                      second=0, microsecond=0)
+        cache = os.path.join(self.save_dir, "aws_cache")
+
+        print(f"  [aws] target {date_time.strftime('%Y-%m-%d %H:%M')} UTC")
+        for attempt in range(max_attempts):
+            t = date_time - timedelta(minutes=10 * attempt)
+            try:
+                status, info = extract_scan(t.replace(tzinfo=None), cache)
+                if status == "missing":
+                    print(f"    · {t.strftime('%H:%M')} → not in archive yet")
+                    continue
+                img = Image.open(info)
+                ok, reason = self.validate_tile(img, t)
+                if not ok:
+                    print(f"    · {t.strftime('%H:%M')} → rejected: {reason}")
+                    continue
+                filename = f"{self.save_dir}/{out_name}"
+                shutil.copyfile(info, filename)
+                print(f"  ✓ [aws] saved {out_name} "
+                      f"({t.strftime('%H:%M')} UTC)")
+                return filename
+            except Exception as e:
+                print(f"    · {t.strftime('%H:%M')} → error: {str(e)[:60]}")
         return None
 
     # ── Alternative sources ───────────────────────────────────────────────
@@ -455,7 +501,8 @@ class CurrentDataCollector:
         frames = self.satellite_collector.fetch_frame_series(
             date_time=sat_datetime)
         satellite_file = frames[0]
-        if satellite_file is None:   # NICT series failed → JAXA single-frame
+        # Series failed → JAXA single-frame, only if JAXA is a configured source
+        if satellite_file is None and "jaxa" in satellite_sources():
             satellite_file = self.satellite_collector.fetch_image_jaxa(
                 date_time=sat_datetime)
         

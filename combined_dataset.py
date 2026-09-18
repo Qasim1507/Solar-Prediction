@@ -12,7 +12,7 @@ SGT = pytz.timezone("Asia/Singapore")
 UTC = pytz.utc
 
 IMAGE_PATTERN = re.compile(
-    r"himawari_4d_(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})\.png$"
+    r"himawari_(?:4d|sg)_(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})\.png$"
 )
 
 
@@ -49,7 +49,7 @@ def scan_satellite_images(satellite_dir: str) -> pd.DataFrame:
     if not records:
         raise FileNotFoundError(
             f"No Himawari PNG images found under '{satellite_dir}'. "
-            "Check the directory exists and filenames follow: himawari_4d_YYYYMMDD_HHMMSS.png"
+            "Check the directory exists and filenames follow: himawari_{4d,sg}_YYYYMMDD_HHMMSS.png"
         )
 
     df = pd.DataFrame(records).sort_values("utc_dt").reset_index(drop=True)
@@ -241,10 +241,11 @@ def parse_args():
     p.add_argument("--pv-csv",             default="data/pv_dataset_sg.csv")
     p.add_argument("--ground-truth",       default="data/pv_ground_truth_sg.csv",
                    help="Output of fetch_pv_ground_truth.py")
-    p.add_argument("--satellite-dir",      default="data/satellite")
+    p.add_argument("--satellite-dir",      default="data/satellite_aws")
     p.add_argument("--output",             default="data/combined_dataset.csv")
-    p.add_argument("--tolerance",          type=int, default=60,
-                   help="Max minutes between weather row and satellite image (default: 60)")
+    p.add_argument("--tolerance",          type=int, default=10,
+                   help="Max minutes between weather row and satellite image (default: 10; "
+                        "AWS scans are every 10 min, so this only allows a neighbouring scan)")
     p.add_argument("--no-daylight-filter", action="store_true",
                    help="Keep all hours (default: 08:00–17:00 SGT only)")
     return p.parse_args()

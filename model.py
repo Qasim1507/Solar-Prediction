@@ -46,6 +46,23 @@ WINDOW_SIZE = 24
 FLOW_SIZE   = 64          # resolution used when computing optical flow (v2)
 ZEROS_IMG   = torch.zeros((3, 224, 224), dtype=torch.float32)
 
+# ── Quantile head ────────────────────────────────────────────────────────────
+# Given cloud NOW, k_t two hours later is close to bimodal over Singapore: it
+# either stays overcast (~0.3) or clears (~0.75). A single Gaussian cannot
+# represent that, and Gaussian NLL is minimised by predicting the mean of the
+# two modes -- the one value that is almost never right. Quantiles can.
+QUANTILES   = [0.1, 0.25, 0.5, 0.75, 0.9]
+MEDIAN_IDX  = QUANTILES.index(0.5)
+Z90         = 1.645       # normal z for a 90% central interval
+
+
+def pinball_loss(pred, target, quantiles=None):
+    """Quantile (pinball) loss. pred (B,H,Q), target (B,H)."""
+    qs = torch.tensor(quantiles or QUANTILES, device=pred.device,
+                      dtype=pred.dtype)
+    e = target.unsqueeze(-1) - pred
+    return torch.mean(torch.max(qs * e, (qs - 1.0) * e))
+
 SG_LAT, SG_LON = 1.3521, 103.8198
 
 
@@ -221,7 +238,7 @@ def load_model(model_path: str, device: torch.device) -> nn.Module:
             cfg = json.load(f)
         kwargs = {k: cfg[k] for k in
                   ("backbone", "lstm_hidden", "num_heads", "hidden_dim",
-                   "dropout", "n_tabular", "ablation") if k in cfg}
+                   "dropout", "n_tabular", "ablation", "head_type") if k in cfg}
         print(f"  ✓ Detected v2 architecture (config: {cfg.get('backbone')}, "
               f"D={cfg.get('hidden_dim')}, heads={cfg.get('num_heads')}, "
               f"lstm={cfg.get('lstm_hidden')})")
@@ -236,6 +253,9 @@ def load_model(model_path: str, device: torch.device) -> nn.Module:
             "backbone":    "efficientnet_b0" if int(img_ch) == 320
                            else "efficientnet_b2",
             "num_heads":   8,
+            "head_type":   ("quantile"
+                            if state["head.6.weight"].shape[0] == 3 * len(QUANTILES)
+                            else "gaussian"),
         }
         print(f"  ✓ Detected v2 architecture (inferred: {kwargs['backbone']}, "
               f"D={kwargs['hidden_dim']}, lstm={kwargs['lstm_hidden']})")
@@ -289,7 +309,7 @@ class PhysicsGatedFusionModelV2(nn.Module):
     def __init__(self, ablation=None, pretrained_encoder_path=None,
                  imagenet_init=False, backbone="efficientnet_b2",
                  lstm_hidden=128, num_heads=8, hidden_dim=256,
-                 dropout=0.15, n_tabular=None):
+                 dropout=0.15, n_tabular=None, head_type="gaussian"):
         """
         imagenet_init : True only when training from scratch; False when
                         loading a full checkpoint (skips a weight download).
@@ -297,6 +317,9 @@ class PhysicsGatedFusionModelV2(nn.Module):
         lstm_hidden   : BiLSTM hidden size per direction (128 → 64 to shrink)
         num_heads     : cross-attention heads (8 → 4 to shrink)
         hidden_dim    : cross-attention / fusion width D (256 → 128 to shrink)
+        head_type     : "gaussian" (default, 6 outputs = 3 mu + 3 sigma) or
+                        "quantile" (3 x len(QUANTILES) outputs). Default keeps
+                        existing checkpoints loading unchanged.
         n_tabular     : number of tabular features; defaults to len(TABULAR_COLS).
                         Set explicitly when ablating features (e.g. dropping
                         ghi_lag1) so the LSTM input width matches the data.
@@ -331,11 +354,13 @@ class PhysicsGatedFusionModelV2(nn.Module):
         self.enrich = nn.Sequential(
             nn.Linear(in_dim + 3, self.D), nn.ReLU(), nn.Dropout(dropout)
         )
+        self.head_type = head_type
+        n_out = 6 if head_type == "gaussian" else 3 * len(QUANTILES)
         h1, h2 = self.D // 2, self.D // 4
         self.head = nn.Sequential(
             nn.Linear(self.D, h1), nn.LayerNorm(h1), nn.GELU(), nn.Dropout(dropout),
             nn.Linear(h1, h2),     nn.LayerNorm(h2), nn.GELU(),
-            nn.Linear(h2, 6),
+            nn.Linear(h2, n_out),
         )
         # Recorded so save_checkpoint() can write a sidecar config — num_heads
         # is NOT recoverable from tensor shapes, so it must be persisted.
@@ -343,7 +368,7 @@ class PhysicsGatedFusionModelV2(nn.Module):
             "version": "v2", "ablation": ablation, "backbone": backbone,
             "lstm_hidden": lstm_hidden, "num_heads": num_heads,
             "hidden_dim": hidden_dim, "dropout": dropout,
-            "n_tabular": input_dim,
+            "n_tabular": input_dim, "head_type": head_type,
         }
         self.freeze_cnn()
 
@@ -370,7 +395,8 @@ class PhysicsGatedFusionModelV2(nn.Module):
                           to_patches(f2), to_patches(fr)], dim=1)  # (B,196,352)
 
     def forward(self, tabular_seq, multi_frame, roi_image,
-                future_clearsky, gate_features, return_attn=False):
+                future_clearsky, gate_features, return_attn=False,
+                return_quantiles=False):
         H_t      = self.temporal(tabular_seq)
         patches  = self._image_patches(multi_frame, roi_image)
         H_a, aw  = self.cross_attn(H_t, patches)
@@ -389,9 +415,23 @@ class PhysicsGatedFusionModelV2(nn.Module):
             fused = self.enrich(torch.cat(
                 [alpha * pad + (1 - alpha) * H_a, future_clearsky], dim=1))
 
-        out   = self.head(fused)
-        mu    = out[:, :3]
-        sigma = F.softplus(out[:, 3:]) + 1e-4
+        out = self.head(fused)
+
+        if self.head_type == "quantile":
+            q = out.view(-1, 3, len(QUANTILES))
+            # sort so quantiles cannot cross (q10 <= q25 <= ... <= q90)
+            q, _ = torch.sort(q, dim=-1)
+            if return_quantiles:
+                return (q, alpha, aw) if return_attn else q
+            # (mu, sigma)-compatible view so predict.py / verify.py are unchanged:
+            # median as the point forecast, 10-90 spread mapped to a Gaussian sigma.
+            mu    = q[:, :, MEDIAN_IDX]
+            sigma = (q[:, :, -1] - q[:, :, 0]).clamp(min=1e-4) / (2 * Z90)
+        else:
+            mu    = out[:, :3]
+            sigma = F.softplus(out[:, 3:]) + 1e-4
+            if return_quantiles:
+                raise ValueError("head_type='gaussian' has no quantile output")
 
         if return_attn:
             return mu, sigma, alpha, aw
@@ -421,13 +461,19 @@ def load_weather_from_json(path: str) -> dict:
 
 
 def load_image_tensor(path: str) -> torch.Tensor:
-    """Load a PNG/NPY satellite image as a normalised (3,224,224) tensor."""
+    """Load a PNG/NPY/NPZ satellite image as a normalised (3,224,224) tensor."""
     if not path or not os.path.exists(path):
         print(f"  ⚠️  Satellite image not found at {path} — using zeros")
         return ZEROS_IMG.clone()
     try:
         if path.endswith(".npy"):
             arr = np.load(path).astype(np.float32)
+        elif path.endswith(".npz"):
+            # AWS crop (himawari_aws.py): same composite as its PNG
+            from himawari_aws import bands_to_rgb, rgb_to_uint8
+            rgb = rgb_to_uint8(bands_to_rgb(np.load(path)["bands"]))
+            img = Image.fromarray(rgb).resize((224, 224), Image.BILINEAR)
+            arr = np.array(img, dtype=np.float32) / 255.0
         else:
             img = Image.open(path).convert("RGB").resize((224, 224), Image.BILINEAR)
             arr = np.array(img, dtype=np.float32) / 255.0
@@ -531,7 +577,12 @@ def _add_engineered_features(df: pd.DataFrame) -> pd.DataFrame:
     df["cos_hour"]       = np.cos(2 * np.pi * df["hour"] / 24)
     df["sin_month"]      = np.sin(2 * np.pi * df["month"] / 12)
     df["cos_month"]      = np.cos(2 * np.pi * df["month"] / 12)
-    df["ghi_lag1"]       = df["ghi"].shift(1).fillna(0)
+    # Time-indexed, NOT positional. The frame is daylight-only (08:00-17:00),
+    # so shift(1) at 08:00 returns yesterday 17:00 -- stale by 15 hours for
+    # ~10% of rows. reindex yields NaN across the overnight gap instead.
+    _ts = df.set_index("timestamp")["ghi"]
+    df["ghi_lag1"] = _ts.reindex(df["timestamp"] - pd.Timedelta(hours=1)).values
+    df["ghi_lag1"] = df["ghi_lag1"].ffill().fillna(df["ghi"])
     return df
 
 
@@ -544,11 +595,19 @@ def build_lookback_window(df: pd.DataFrame, train_stats: dict,
     past      = df[df["timestamp"] <= ref_naive].tail(WINDOW_SIZE)
 
     if len(past) < WINDOW_SIZE:
-        print(f"  ⚠️  Only {len(past)} historical rows — padding with zeros")
-        pad = pd.DataFrame(
-            np.zeros((WINDOW_SIZE - len(past), len(TABULAR_COLS))),
-            columns=TABULAR_COLS,
-        )
+        # Pad with the TRAINING MEAN, which normalises to exactly 0. Zero-padding
+        # before normalisation sent temperature in at -12.6 sigma and humidity at
+        # -6.7 sigma -- extreme outliers the LSTM had never seen in training.
+        if len(past) < WINDOW_SIZE // 2:
+            raise ValueError(
+                f"only {len(past)} historical rows for a {WINDOW_SIZE}-step "
+                f"window ending {ref_naive} — refusing to serve a mostly "
+                f"synthetic lookback")
+        print(f"  ⚠️  Only {len(past)} historical rows — padding "
+              f"{WINDOW_SIZE - len(past)} steps with the training mean")
+        mean_row = pd.DataFrame([train_stats["mean"]], columns=TABULAR_COLS)
+        pad = pd.concat([mean_row] * (WINDOW_SIZE - len(past)),
+                        ignore_index=True)
         tab = pd.concat([pad, past[TABULAR_COLS]], ignore_index=True)
     else:
         tab = past[TABULAR_COLS].copy()
