@@ -15,7 +15,7 @@ Not in git, rebuilt on the pod:
 
 | Path | Size | How it comes back |
 |---|---|---|
-| `data/satellite_aws/` | 2.4 GB (training set) | `scripts/runpod_setup.sh` |
+| `data/satellite_aws/` | ~7 GB (training frames) | `scripts/runpod_setup.sh` |
 | `data/satellite_aws_npy/` | 5.6 GB | notebook Section 3 |
 | `swimseg/` | 221 MB | not needed — see below |
 
@@ -27,14 +27,14 @@ cd Project
 bash scripts/runpod_setup.sh
 ```
 
-This installs dependencies and downloads **only the 9,843 scans the training
-set actually uses** — the ones listed in `data/combined_dataset.csv`. That is
-~2.4 GB and about 25 minutes, not the full 51 GB.
+This installs dependencies and downloads **only the scans the training set
+actually uses**: each row's frame series (t, t-10min, t-20min), about 29,500
+scans or ~7 GB, rather than the full 51 GB.
 
-The reason: the archive holds a scan every 10 minutes, but the dataset is
-hourly, so training reads roughly one scan in eight. You only need the full
-download if you intend to **rebuild** `combined_dataset.csv` at a finer
-cadence with `combined_dataset.py`:
+The reason: the archive holds a scan every 10 minutes, but the rows are hourly
+(ERA5 weather is hourly), so training reads roughly three scans per hour rather
+than all six. You only need the full download to **rebuild**
+`combined_dataset.csv` against every available scan:
 
 ```bash
 MODE=full bash scripts/runpod_setup.sh    # ~51 GB, ~3.5 h
@@ -53,7 +53,7 @@ Open `solar_pv_main.ipynb` and run from Section 0. What each section does:
 | 2 | Persistence baselines | fast; the bar the model must beat |
 | 3 | PNG → 224×224 `.npy` cache | **required**, builds the 5.6 GB `NPY_DIR`; one-off |
 | 3.5 | SwimSeg CNN pretraining | **skipped** — `swimseg_encoder.pt` is in the repo |
-| 4 | Load images into RAM | needs ~6 GB free RAM for 9,843 images |
+| 4 | Load images into RAM | ~9 GB free RAM (~29,500 frames, cached float16) |
 | 5–6 | DataLoaders, model | fast |
 | 7 | Training | 150 epochs, early stop at patience 20 |
 | 8 | Evaluation + ablation study | retrains 5 variants → `best_model_*.pt` |
@@ -62,8 +62,32 @@ Open `solar_pv_main.ipynb` and run from Section 0. What each section does:
 Section 3.5 is why `swimseg_encoder.pt` is committed: without it you would also
 need the uncommitted 221 MB `swimseg/` dataset to pretrain the encoder.
 
-**Pod sizing:** ≥6 GB free RAM for the Section 4 image cache (16 GB+ total is
-comfortable), ~10 GB disk for imagery plus the `.npy` cache, and any CUDA GPU.
+**Pod sizing:** ≥9 GB free RAM for the Section 4 image cache (16 GB+ total is
+comfortable), ~25 GB disk for imagery plus the `.npy` cache, and any CUDA GPU.
+
+## Frame cadence
+
+Each row feeds the model three satellite frames. Those are taken at **t,
+t-10min and t-20min** — Himawari's native scan cadence — not at the previous
+dataframe rows, which would space them an hour apart.
+
+This matters because two of the four physics-gate inputs are an optical-flow
+vector computed between frames. Measured on 300 samples, the flow explains
+12.3% of the frame-to-frame change at 10-minute spacing versus 5.1% at
+1-hour: over an hour a cloud field decorrelates rather than merely moving, so
+the vector is largely noise.
+
+The offsets live in `combined_dataset.FRAME_OFFSETS_MINUTES` and are imported
+by `current_data.fetch_frame_series()`, so training and live inference cannot
+drift apart — a mismatch there silently destroys the flow signal (ISSUE-B2/B3).
+
+Himawari skips its full-disk scan during daily housekeeping at 02:40 UTC, so
+the t-20min slot genuinely does not exist for ~10% of rows. Those fall back to
+the nearest earlier scan (t-30min) rather than a zero-filled frame.
+
+The targets stay hourly. Every non-satellite column — `ghi` included — comes
+from ERA5 reanalysis, which is natively hourly; resampling them to 10 minutes
+would mean interpolating the prediction target.
 
 ## 3. Save your outputs
 
