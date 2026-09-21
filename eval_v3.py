@@ -1,8 +1,13 @@
 """
 eval_v3.py — score the v3 seeds, their Gaussian ensemble, and the tabular
-baselines on EXACTLY the same validation rows.
+baselines on EXACTLY the same rows.
 
-    python eval_v3.py --seeds 42 1337 2024
+    python eval_v3.py --seeds 42 1337 2024                  # val  (optimistic)
+    python eval_v3.py --seeds 42 1337 2024 --split test     # test (unbiased)
+
+--split val reports on the rows checkpoint selection was performed on, so the
+deep models carry a selection advantage the tabular baselines do not. --split
+test is held out from both training and selection and is the number to quote.
 
 The ensemble is precision-weighted, which is the right combination rule for
 Gaussian heads: a seed that is confident on a sample gets more say on it than
@@ -61,6 +66,10 @@ def main():
     ap.add_argument("--csv", default="data/combined_dataset_v2.csv")
     ap.add_argument("--device", default=None)
     ap.add_argument("--out", default="analysis/v3_results.json")
+    ap.add_argument("--split", choices=["val", "test"], default="val",
+                    help="val = the rows checkpoints were selected on "
+                         "(optimistic); test = held out from both training "
+                         "and selection (unbiased)")
     a = ap.parse_args()
 
     dev = torch.device(a.device) if a.device else (
@@ -71,13 +80,17 @@ def main():
     df = T.engineer(pd.read_csv(a.csv, parse_dates=["timestamp"]))
     df = df[df["image_path"].notna()].reset_index(drop=True)
     n = len(df); t_end = int(n * .70); v_end = int(n * .85)
-    tr_df, va_df = df.iloc[:t_end], df.iloc[t_end:v_end]
+    tr_df = df.iloc[:t_end]
+    ev_df = df.iloc[t_end:v_end] if a.split == "val" else df.iloc[v_end:]
 
     tr = T.KtDataset(tr_df, True)
     st = tr.stats()
-    va = T.KtDataset(va_df, False, st)
+    va = T.KtDataset(ev_df, False, st)
     loader = DataLoader(va, batch_size=64, shuffle=False)
-    print(f"train={len(tr)} val={len(va)} device={dev}")
+    note = ("selection was performed on these rows - optimistic"
+            if a.split == "val" else
+            "held out from training AND selection - unbiased")
+    print(f"train={len(tr)} {a.split}={len(va)} device={dev}\n({note})")
 
     # ── truth and baselines on exactly these rows ────────────────────────────
     vi = np.asarray(va.idx)
@@ -86,7 +99,7 @@ def main():
     sp = smart_persistence_forecast(va.ghi[vi], va.cs[vi], cs_fut)
     ref = float(mean_absolute_error(actual, sp))
 
-    results = {"n": int(len(vi)), "models": {}}
+    results = {"n": int(len(vi)), "split": a.split, "models": {}}
     per_sample = {}
     results["models"]["Smart persistence"] = metrics(actual, sp)
     results["models"]["Persistence"] = metrics(
