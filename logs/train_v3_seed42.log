@@ -1,0 +1,34 @@
+device=mps seed=42 csv=data/combined_dataset_v2.csv
+train=4763 val=1009  features=14
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Unexpected keys (bn2.num_batches_tracked, bn2.bias, bn2.running_mean, bn2.running_var, bn2.weight, classifier.bias, classifier.weight, conv_head.weight) found while loading pretrained weights. This may be expected if model is being adapted.
+trainable params: 1,236,359
+
+ Ep |   tr NLL   tr MAE |   va NLL   va MAE | status
+  1 |   0.4787   122.0W |   0.1484    93.6W | saved  144s
+  2 |   0.2197   100.5W |   0.0163    81.4W | saved  135s
+  3 |   0.1549    95.5W |   0.0994    94.8W | patience 1/15  131s
+  4 |   0.1154    92.6W |  -0.0446    77.1W | saved  130s
+  5 |   0.0381    86.7W |  -0.0823    76.5W | saved  133s
+  6 |   0.0067    84.1W |  -0.0853    75.5W | saved  135s
+  7 |  -0.0047    83.8W |  -0.0249    82.2W | patience 1/15  133s
+  8 |  -0.0140    83.1W |  -0.0407    83.3W | patience 2/15  136s
+  9 |  -0.0234    81.6W |  -0.0440    73.0W | saved  149s
+ 10 |  -0.0541    80.5W |  -0.0431    78.6W | patience 1/15  139s
+ 11 |  -0.0717    79.0W |  -0.0850    73.8W | patience 2/15  138s
+ 12 |  -0.0849    78.1W |  -0.1022    75.2W | patience 3/15  135s
+ 13 |  -0.0905    78.0W |   0.1539    78.3W | patience 4/15  135s
+ 14 |  -0.0953    77.8W |  -0.0241    76.0W | patience 5/15  138s
+ 15 |  -0.1211    76.5W |   0.0614    76.7W | patience 6/15  186s
+ 16 |  -0.1329    75.7W |  -0.0269    76.1W | patience 7/15  138s
+ 17 |  -0.1586    74.1W |   0.1506    75.5W | patience 8/15  159s
+ 18 |  -0.1471    74.0W |  -0.0700    77.5W | patience 9/15  142s
+ 19 |  -0.1779    72.9W |   0.1333    75.6W | patience 10/15  129s
+ 20 |  -0.1876    72.1W |   0.1988    77.6W | patience 11/15  130s
+ 21 |  -0.2036    71.8W |   0.0462    77.0W | patience 12/15  123s
+ 22 |  -0.2050    71.4W |   0.2672    77.5W | patience 13/15  122s
+ 23 |  -0.2339    69.9W |   0.2892    76.6W | patience 14/15  125s
+ 24 |  -0.2459    69.6W |   0.2803    81.7W | patience 15/15  119s
+early stop at epoch 24
+
+best val MAE 72.97 W/m2 at epoch 9 -> best_model_v3_seed42.pt

@@ -1,0 +1,40 @@
+device=mps seed=2024 csv=data/combined_dataset_v2.csv
+train=4763 val=1009  features=14
+Unexpected keys (bn2.num_batches_tracked, bn2.bias, bn2.running_mean, bn2.running_var, bn2.weight, classifier.bias, classifier.weight, conv_head.weight) found while loading pretrained weights. This may be expected if model is being adapted.
+trainable params: 1,236,359
+
+ Ep |   tr NLL   tr MAE |   va NLL   va MAE | status
+  1 |   0.4613   122.3W |   0.1763   101.2W | saved  100s
+  2 |   0.2263   100.9W |   0.1363   100.1W | saved  96s
+  3 |   0.1752    97.8W |   0.0689    91.3W | saved  97s
+  4 |   0.1102    92.3W |  -0.0464    78.9W | saved  98s
+  5 |   0.0858    89.0W |  -0.0211    82.9W | patience 1/15  101s
+  6 |   0.0340    86.3W |  -0.0716    80.4W | patience 2/15  129s
+  7 |   0.0041    83.6W |  -0.0519    80.4W | patience 3/15  105s
+  8 |  -0.0002    83.5W |  -0.0728    78.0W | saved  108s
+  9 |  -0.0351    81.2W |  -0.0665    78.2W | patience 1/15  117s
+ 10 |  -0.0571    79.8W |  -0.0354    82.8W | patience 2/15  100s
+ 11 |  -0.0693    78.6W |  -0.0668    75.0W | saved  98s
+ 12 |  -0.0925    77.9W |  -0.0651    77.7W | patience 1/15  97s
+ 13 |  -0.0935    78.0W |   0.1789    75.3W | patience 2/15  104s
+ 14 |  -0.1037    76.7W |  -0.0825    75.2W | patience 3/15  105s
+ 15 |  -0.1264    76.1W |   0.0346    76.6W | patience 4/15  103s
+ 16 |  -0.1267    75.7W |   0.0909    74.4W | saved  105s
+ 17 |  -0.1675    74.0W |   0.2577    77.5W | patience 1/15  105s
+ 18 |  -0.1470    74.5W |   0.0911    76.6W | patience 2/15  106s
+ 19 |  -0.1702    72.9W |   0.0857    76.7W | patience 3/15  114s
+ 20 |  -0.1511    73.6W |   0.1693    77.2W | patience 4/15  115s
+ 21 |  -0.1670    73.3W |   0.1528    76.5W | patience 5/15  106s
+ 22 |  -0.1910    72.2W |   0.1134    76.1W | patience 6/15  108s
+ 23 |  -0.2121    70.9W |   0.2287    76.7W | patience 7/15  104s
+ 24 |  -0.2185    70.3W |   0.4718    77.7W | patience 8/15  103s
+ 25 |  -0.2427    69.6W |   0.1255    77.8W | patience 9/15  98s
+ 26 |  -0.2612    68.6W |   0.4062    78.6W | patience 10/15  95s
+ 27 |  -0.2490    69.0W |   0.3168    78.7W | patience 11/15  95s
+ 28 |  -0.2728    68.2W |   0.5296    77.0W | patience 12/15  96s
+ 29 |  -0.2968    67.0W |   0.2529    77.8W | patience 13/15  95s
+ 30 |  -0.3146    65.7W |   0.8392    77.9W | patience 14/15  95s
+ 31 |  -0.3026    65.9W |   0.4143    77.9W | patience 15/15  95s
+early stop at epoch 31
+
+best val MAE 74.37 W/m2 at epoch 16 -> best_model_v3_seed2024.pt

@@ -1,0 +1,19 @@
+train=4763 val=1009 device=mps
+smart persistence MAE 97.63
+  Linear Regression      MAE= 111.62
+  Random Forest          MAE=  81.63
+/Users/qasimnalawala/Desktop/Project/.venv/lib/python3.14/site-packages/sklearn/utils/validation.py:2691: UserWarning: X does not have valid feature names, but LGBMRegressor was fitted with feature names
+  warnings.warn(
+/Users/qasimnalawala/Desktop/Project/.venv/lib/python3.14/site-packages/sklearn/utils/validation.py:2691: UserWarning: X does not have valid feature names, but LGBMRegressor was fitted with feature names
+  warnings.warn(
+/Users/qasimnalawala/Desktop/Project/.venv/lib/python3.14/site-packages/sklearn/utils/validation.py:2691: UserWarning: X does not have valid feature names, but LGBMRegressor was fitted with feature names
+  warnings.warn(
+  LightGBM               MAE=  82.92
+  v3 seed 42               MAE=  76.09
+  v3 seed 1337             MAE=  78.76
+  v3 seed 2024             MAE=  77.89
+  v3 ensemble            MAE=  75.67  (3 seeds)
+
+v3 ensemble vs LightGBM: dMAE=-7.25 W/m2  DM=-3.69 p=0.0002  DEEP WINS (significant)
+
+written -> analysis/v3_results.json
