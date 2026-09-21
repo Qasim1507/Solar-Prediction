@@ -1,0 +1,16 @@
+# v3 training recipe. Chosen to work as a set; sweeping these by hand costs a
+# day for well under 1 W/m2.
+epochs:         80
+batch_size:     64
+lr:             1.0e-3        # high, because only the head trains
+weight_decay:   0.05
+scheduler:      cosine
+warmup_epochs:  3
+early_stop:     15            # on validation MAE, not NLL
+grad_clip:      1.0
+precision:      bf16          # not fp16 - the v2 run had to skip NaN batches
+freeze_cnn:     true          # v2 val degraded from the epoch-20 unfreeze
+hidden:         256
+lstm_hidden:    128
+dropout:        0.15
+num_workers:    0
