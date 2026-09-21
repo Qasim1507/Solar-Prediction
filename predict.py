@@ -57,9 +57,9 @@ warnings.filterwarnings("ignore")
 # ── Paths ─────────────────────────────────────────────────────────────────────
 # The dataset lives in data/ locally, or at the repo root on RunPod where data/
 # is gitignored — use whichever exists.
-CSV_PATH        = ("./data/combined_dataset.csv"
-                   if os.path.exists("./data/combined_dataset.csv")
-                   else "./combined_dataset.csv")
+CSV_PATH        = ("./data/combined_dataset_v2.csv"
+                   if os.path.exists("./data/combined_dataset_v2.csv")
+                   else "./data/combined_dataset.csv")
 MODEL_PATH      = "./best_model.pt"
 STATS_PATH      = "./train_stats.json"
 WEATHER_JSON    = "./datanow/weather/weather_current.json"
@@ -308,6 +308,16 @@ def predict(model_path=MODEL_PATH, csv_path=CSV_PATH, stats_path=STATS_PATH,
 
 
 if __name__ == "__main__":
+    # The v2 checkpoint and train_stats.json were removed once v3 superseded
+    # them; fetch_live_data() and check_satellite_inputs() live on here and are
+    # imported by predict_v3.py. Restore from git history to run v2 again.
+    if not os.path.exists(MODEL_PATH):
+        raise SystemExit(
+            f"{MODEL_PATH} not found - the v2 model is retired.\n"
+            f"  Forecast with:  python predict_v3.py\n"
+            f"  Or restore v2:  git checkout 160c45d -- best_model.pt "
+            f"train_stats.json data/combined_dataset.csv")
+
     parser = argparse.ArgumentParser(description="Real-time GHI forecast")
     parser.add_argument("--model",      default=MODEL_PATH)
     parser.add_argument("--csv",        default=CSV_PATH)

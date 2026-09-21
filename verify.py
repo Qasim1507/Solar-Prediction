@@ -67,7 +67,10 @@ from model import (
 warnings.filterwarnings("ignore")
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
-CSV_PATH      = "./data/combined_dataset.csv"
+CSV_PATH      = "./data/combined_dataset_v2.csv"
+# The v2 checkpoint has been retired; forecasts come from predict_v3.py.
+# The model fallback below only runs with --forecast pointing at a v2 JSON
+# and a v2 checkpoint restored from git history.
 MODEL_PATH    = "./best_model.pt"
 STATS_PATH    = "./train_stats.json"
 FORECAST_PATH = "./forecast_latest.json"
@@ -214,15 +217,17 @@ def append_log(path: str, rows: list) -> int:
 # VERIFY
 # ══════════════════════════════════════════════════════════════════════════════
 
-def verify(model_fallback=True, log_path=LOG_PATH):
+def verify(model_fallback=True, log_path=LOG_PATH, forecast_path=FORECAST_PATH):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     print(f"\n{'='*74}")
     print("  FORECAST VERIFICATION")
     print(f"{'='*74}")
 
-    with open(FORECAST_PATH) as f:
+    with open(forecast_path) as f:
         forecast = json.load(f)
+    if forecast.get("model"):
+        print(f"  Model: {forecast['model']}")
 
     ftime = SGT.localize(
         pd.to_datetime(forecast["forecast_time_sgt"]).replace(tzinfo=None))
@@ -466,8 +471,12 @@ if __name__ == "__main__":
     p.add_argument("--no-model-fallback", action="store_true",
                    help="Only use measured actuals; never re-estimate")
     p.add_argument("--log", default=LOG_PATH, help="Path to the verification log")
+    p.add_argument("--forecast", default=FORECAST_PATH,
+                   help="Forecast JSON to verify (use forecast_latest_v3.json "
+                        "for the v3 ensemble, with its own --log)")
     a = p.parse_args()
 
     if not a.report:
-        verify(model_fallback=not a.no_model_fallback, log_path=a.log)
+        verify(model_fallback=not a.no_model_fallback, log_path=a.log,
+               forecast_path=a.forecast)
     report(log_path=a.log)

@@ -2,7 +2,7 @@
 """
 fetch_training_images.py — download only the scans the training set uses.
 
-data/combined_dataset.csv is hourly, while the Himawari archive holds a scan
+data/combined_dataset_v2.csv is hourly, while the Himawari archive holds a scan
 every 10 minutes. Training therefore touches a small fraction of the 76,886
 images a full-range download produces.
 
@@ -20,7 +20,7 @@ Uses himawari_aws.extract_scan, so output is byte-identical to a full
 download. Resumable: scans already on disk are skipped.
 
     python scripts/fetch_training_images.py
-    python scripts/fetch_training_images.py --csv data/combined_dataset.csv --workers 32
+    python scripts/fetch_training_images.py --csv data/combined_dataset_v2.csv --workers 32
 """
 
 import argparse
@@ -56,7 +56,7 @@ def timestamps_from_csv(csv_path: str, offsets=FRAME_OFFSETS_MINUTES):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n")[1])
-    p.add_argument("--csv", default="data/combined_dataset.csv")
+    p.add_argument("--csv", default="data/combined_dataset_v2.csv")
     p.add_argument("--out", default="data/satellite_aws")
     p.add_argument("--workers", type=int, default=32)
     args = p.parse_args()
