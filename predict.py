@@ -46,6 +46,8 @@ from model import (
     compute_clearsky_ghi,
     compute_clearsky_hour_mean,
     denormalise_forecast,
+    compute_gate_features,
+    check_inputs_in_distribution,
 )
 
 warnings.filterwarnings("ignore")
@@ -186,12 +188,19 @@ def predict(model_path=MODEL_PATH, csv_path=CSV_PATH, stats_path=STATS_PATH,
     print(f"\n  Current time (SGT): {now_sgt.strftime('%Y-%m-%d %H:%M')}")
 
     # ── Step 5: weather ───────────────────────────────────────────────────────
-    print(f"\n  Loading weather from {WEATHER_JSON}...")
+    # Station observations, reported for context ONLY. The model reads its
+    # features from `df` (Open-Meteo/ERA5, the training source), never from
+    # here, so these units need not match training - data.gov.sg reports wind
+    # in knots where training used km/h. The feed carries no cloud-cover field
+    # at all, which is why cloud_cover below reads 0.0; that zero never
+    # reaches the network.
     weather = load_weather_from_json(WEATHER_JSON)
+    print(f"\n  Observed now (data.gov.sg stations - context only, "
+          f"NOT model input):")
     print(f"    Temp: {weather['temperature_2m']:.1f}°C  "
           f"Rain: {weather['rain']:.1f}mm  "
           f"RH: {weather['relative_humidity_2m']:.1f}%  "
-          f"Wind: {weather['wind_speed_10m']:.1f}km/h")
+          f"Wind: {weather['wind_speed_10m']:.1f}kn")
 
     # ── Step 6: lookback window ───────────────────────────────────────────────
     print("\n  Building 24h lookback window...")
@@ -203,6 +212,10 @@ def predict(model_path=MODEL_PATH, csv_path=CSV_PATH, stats_path=STATS_PATH,
         print(f"  ⚠️  Lookback data still ends {df['timestamp'].max()} "
               f"({data_age_h:.0f}h ago) — live top-up may have failed")
     tabular_seq = build_lookback_window(df, train_stats, now_sgt)
+
+    # ── Step 6b: are the inputs anything like what the model was trained on? ──
+    gate_now = compute_gate_features(df, now_sgt)
+    ood = check_inputs_in_distribution(tabular_seq, gate_now, train_stats, df=df)
 
     # ── Step 7: future clear-sky ──────────────────────────────────────────────
     future_cs = [compute_clearsky_ghi(now_sgt + timedelta(hours=h))
@@ -265,11 +278,22 @@ def predict(model_path=MODEL_PATH, csv_path=CSV_PATH, stats_path=STATS_PATH,
             }
             for h in range(3)
         ],
-        "current_weather": weather,
+        "observed_now": {
+            "_source": "data.gov.sg stations - context only, NOT model input",
+            **weather,
+        },
+        "model_inputs": {
+            "_source": "Open-Meteo / ERA5 - the same source training used",
+            "clearsky_ratio":  round(float(gate_now[0, 0]), 4),
+            "cloud_cover_pct": round(float(gate_now[0, 1]) * 100, 1),
+        },
         "diagnostics": {
             "image_ok":              bool(image_ok),
             "outside_training_hours": bool(outside_training),
             "lookback_ends":         str(df["timestamp"].max()),
+            "inputs_out_of_distribution": [
+                {"feature": _n, "z": round(_z, 2)} for _n, _z in ood
+            ],
         },
     }
     out_path = "./forecast_latest.json"

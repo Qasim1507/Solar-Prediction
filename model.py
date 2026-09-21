@@ -618,17 +618,97 @@ def build_lookback_window(df: pd.DataFrame, train_stats: dict,
     return torch.from_numpy(arr).float().unsqueeze(0)   # (1, 24, 11)
 
 
+def check_inputs_in_distribution(tabular_seq, gate, train_stats,
+                                 df=None, sigma=3.0):
+    """
+    Compare the model's ACTUAL inputs against the training distribution.
+
+    A feature that silently goes wrong never raises -- it just yields a
+    confident, wrong forecast. This is what caught the gate feeding
+    (1 - clearsky_ratio) where training used the ERA5 cloud_cover column.
+
+    tabular_seq is already normalised, so its last timestep IS the z-score
+    vector for the reference hour. Gate inputs are not normalised by
+    train_stats, so they are scored against the same columns of `df`.
+
+    Returns the list of (name, z) that exceed `sigma`.
+    """
+    mean = np.asarray(train_stats["mean"], dtype=np.float64)
+    std  = np.asarray(train_stats["std"],  dtype=np.float64)
+    z    = tabular_seq[0, -1].detach().cpu().numpy().astype(np.float64)
+
+    print("\n  Input check - reference hour vs training distribution")
+    print(f"    {'feature':<24}{'value':>10}{'z':>8}")
+    bad = []
+    for name, zi, m, sd in zip(TABULAR_COLS, z, mean, std):
+        raw  = zi * sd + m
+        flag = ""
+        if (not np.isfinite(zi)) or abs(zi) > sigma:
+            flag = "  <-- OUT OF DISTRIBUTION"
+            bad.append((name, float(zi)))
+        print(f"    {name:<24}{raw:10.2f}{zi:+8.2f}{flag}")
+
+    if gate is not None:
+        g = gate.detach().cpu().numpy().ravel()
+        refs = [None, None]
+        if df is not None:
+            if "clearsky_ratio" in df.columns:
+                refs[0] = df["clearsky_ratio"].dropna()
+            if "cloud_cover" in df.columns:
+                refs[1] = df["cloud_cover"].dropna() / 100.0
+        for name, val, ref in zip(["gate:clearsky_ratio", "gate:cloud_cover"],
+                                  g[:2], refs):
+            if ref is not None and len(ref) > 1 and float(ref.std()) > 1e-9:
+                zi   = (float(val) - float(ref.mean())) / float(ref.std())
+                flag = ""
+                if abs(zi) > sigma:
+                    flag = "  <-- OUT OF DISTRIBUTION"
+                    bad.append((name, float(zi)))
+                print(f"    {name:<24}{val:10.3f}{zi:+8.2f}{flag}")
+            else:
+                print(f"    {name:<24}{val:10.3f}{'n/a':>8}")
+        for name, val in zip(["gate:flow_vx", "gate:flow_vy"], g[2:4]):
+            print(f"    {name:<24}{val:10.3f}{'n/a':>8}")
+
+    if bad:
+        print(f"\n  \u26a0\ufe0f  {len(bad)} input(s) outside \u00b1{sigma:.0f}"
+              f"\u03c3 of training: "
+              + ", ".join(f"{n} (z={zz:+.1f})" for n, zz in bad))
+        print("      This forecast is extrapolation, not interpolation - the "
+              "uncertainty band below does NOT account for it.")
+    else:
+        print(f"\n  \u2713 all inputs within \u00b1{sigma:.0f}\u03c3 of training")
+    return bad
+
+
 def compute_gate_features(df: pd.DataFrame, reference_time) -> torch.Tensor:
     """
-    Returns the (1, 2) gate tensor [clearsky_ratio, cloud_cover] evaluated
+    Returns the (1, 2) gate tensor [clearsky_ratio, cloud_cover/100] evaluated
     at reference_time (uses the last CSV row at or before that time).
+
+    cloud_cover is read from the SAME column training used. It was previously
+    derived as (1 - clearsky_ratio); measured against the ERA5 column over the
+    full dataset that proxy correlates only 0.31, averages 0.29 where training
+    averaged 0.85, and is 57 pp out in the mean -- about 2.2 training sigma on
+    one of the four inputs the physics gate uses to decide how far to trust the
+    satellite branch.
     """
     ref_naive = pd.Timestamp(reference_time).replace(tzinfo=None)
     row       = df[df["timestamp"] <= ref_naive].tail(1)
     ghi_last  = float(row["ghi"].iloc[0]) if len(row) else 400.0
     ghi_cs    = compute_clearsky_ghi(reference_time)
     cr        = float(np.clip(ghi_last / (ghi_cs + 1e-6), 0, 1.5))
-    cc        = float(np.clip((1 - cr) * 100, 0, 100))
+
+    cc = None
+    if len(row) and "cloud_cover" in row.columns:
+        val = row["cloud_cover"].iloc[0]
+        if pd.notna(val):
+            cc = float(np.clip(float(val), 0, 100))
+    if cc is None:
+        cc = float(np.clip((1 - cr) * 100, 0, 100))
+        print("  \u26a0\ufe0f  No cloud_cover for the reference hour - falling back "
+              "to (1 - clearsky_ratio), a proxy the gate never saw in training")
+
     return torch.tensor([[cr, cc / 100.0]], dtype=torch.float32)
 
 
