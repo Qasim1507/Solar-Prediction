@@ -565,10 +565,18 @@ def fetch_recent_df(past_days: int = 3) -> pd.DataFrame:
     now = pd.Timestamp.now(tz="Asia/Singapore").tz_localize(None).floor("h")
     df = df[df["timestamp"] <= now].reset_index(drop=True)
 
-    # Clearsky GHI via pvlib (needed for clearsky_ratio feature)
+    # Clearsky GHI, on the SAME convention as combined_dataset_v2.csv: the mean
+    # over the preceding hour, because Open-Meteo labels each hourly value with
+    # the end of its averaging window. The instantaneous value read 914.4 at
+    # noon where the hour mean is 873.5 - a 5% gap that grows towards sunrise
+    # and sunset, and it fed straight into clearsky_ratio and ghi_clearsky.
+    # Vectorised: one get_clearsky call over all six sub-steps.
     loc   = pvlib.location.Location(SG_LAT, SG_LON, tz="Asia/Singapore")
     times = pd.DatetimeIndex(df["timestamp"], tz="Asia/Singapore")
-    df["ghi_clearsky"] = loc.get_clearsky(times)["ghi"].values
+    _offs = [pd.Timedelta(minutes=m) for m in (-50, -40, -30, -20, -10, 0)]
+    _sub  = pd.DatetimeIndex(np.concatenate([(times + o).values for o in _offs]))
+    _cs   = loc.get_clearsky(_sub)["ghi"].values
+    df["ghi_clearsky"] = _cs.reshape(len(_offs), len(df)).mean(axis=0)
     return df
 
 
@@ -599,8 +607,10 @@ def _add_engineered_features(df: pd.DataFrame) -> pd.DataFrame:
     # so shift(1) at 08:00 returns yesterday 17:00 -- stale by 15 hours for
     # ~10% of rows. reindex yields NaN across the overnight gap instead.
     _ts = df.set_index("timestamp")["ghi"]
-    df["ghi_lag1"] = _ts.reindex(df["timestamp"] - pd.Timedelta(hours=1)).values
-    df["ghi_lag1"] = df["ghi_lag1"].ffill().fillna(df["ghi"])
+    for _L in (1, 2, 3):          # v3 uses all three; v2 reads only ghi_lag1
+        df[f"ghi_lag{_L}"] = _ts.reindex(
+            df["timestamp"] - pd.Timedelta(hours=_L)).values
+        df[f"ghi_lag{_L}"] = df[f"ghi_lag{_L}"].ffill().fillna(df["ghi"])
     return df
 
 
@@ -653,7 +663,7 @@ def build_lookback_window(df: pd.DataFrame, train_stats: dict,
 
 
 def check_inputs_in_distribution(tabular_seq, gate, train_stats,
-                                 df=None, sigma=3.0):
+                                 df=None, sigma=3.0, cols=None):
     """
     Compare the model's ACTUAL inputs against the training distribution.
 
@@ -669,6 +679,12 @@ def check_inputs_in_distribution(tabular_seq, gate, train_stats,
     """
     mean = np.asarray(train_stats["mean"], dtype=np.float64)
     std  = np.asarray(train_stats["std"],  dtype=np.float64)
+    # Feature names must match the stats being used: v3 carries 14 columns in
+    # its sidecar, v2's TABULAR_COLS has 11. Defaulting to the module constant
+    # silently mislabels (and truncates) a v3 window.
+    cols = list(cols or train_stats.get("features") or TABULAR_COLS)
+    if len(cols) != len(mean):
+        raise ValueError(f"{len(cols)} feature names vs {len(mean)} stats")
 
     # Score the WHOLE window, not just the reference hour. Scoring only the last
     # timestep missed the night-row bug entirely: the reference hour was daylight
@@ -681,7 +697,7 @@ def check_inputs_in_distribution(tabular_seq, gate, train_stats,
     print(f"    {'feature':<24}{'value@ref':>11}{'z@ref':>8}{'worst z':>9}"
           f"{'step':>7}")
     bad = []
-    for j, (name, m, sd) in enumerate(zip(TABULAR_COLS, mean, std)):
+    for j, (name, m, sd) in enumerate(zip(cols, mean, std)):
         col   = Z[:, j]
         z_ref = col[-1]
         raw   = z_ref * sd + m
