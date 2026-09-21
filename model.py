@@ -229,6 +229,18 @@ def load_model(model_path: str, device: torch.device) -> nn.Module:
     v1 vs v2 is detected from the presence of 'global_enc.*' keys.
     """
     state = torch.load(model_path, map_location=device, weights_only=True)
+
+    # v3 (WinnerModel) is identified by its cross-attention block, which neither
+    # earlier architecture has. It predicts k_t, so its sidecar carries kt_mean
+    # and kt_std alongside the tabular stats.
+    if any(k.startswith("cross_attn.") for k in state):
+        model = WinnerModel(n_tab=len(TABULAR_COLS_V3),
+                            imagenet_init=False).to(device)
+        model.load_state_dict(state)
+        model.eval()
+        print("  \u2713 Detected v3 architecture (WinnerModel, k_t target)")
+        return model
+
     is_v2 = any(k.startswith("global_enc.") for k in state)
 
     if not is_v2:
@@ -815,6 +827,29 @@ def compute_gate_features_v2(df: pd.DataFrame, reference_time,
     return torch.cat([base, flow.unsqueeze(0)], dim=1)
 
 
+def run_model_v3(model, tabular_seq, sat_path, future_clearsky, device,
+                 prev_paths=(None, None), stats=None, kt_cap=1.15):
+    """v3 inference. Returns GHI in W/m2 plus its sigma, already de-normalised.
+
+    The model predicts k_t, so the clear-sky cap is applied in k_t space and
+    then multiplied back up - capping in GHI space instead would clip the
+    interval to a point wherever the cap binds.
+    """
+    tabular_seq = tabular_seq.to(device)
+    fc = future_clearsky.to(device)
+    multi, roi, _flow = load_satellite_inputs(sat_path, *prev_paths)
+    f_t, f_t1, f_t2 = multi[:, 0:3], multi[:, 3:6], multi[:, 6:9]
+    with torch.no_grad():
+        mu, sigma = model(tabular_seq, f_t.to(device), f_t1.to(device),
+                          f_t2.to(device), roi.to(device), fc)
+    kt_mean = stats["kt_mean"] if stats else 0.0
+    kt_std = stats["kt_std"] if stats else 1.0
+    kt = (mu.cpu().numpy() * kt_std + kt_mean).clip(0.0, kt_cap)
+    kt_sig = sigma.cpu().numpy() * kt_std
+    cs = future_clearsky.cpu().numpy()
+    return kt * cs, kt_sig * cs
+
+
 def run_model(model, tabular_seq, sat_path, future_clearsky,
               df, reference_time, device, prev_paths=(None, None)):
     """
@@ -890,3 +925,114 @@ def denormalise_forecast(mu_np, sigma_np, train_stats: dict):
     lo       = np.clip(mu_real - 1.645 * sig_real, 0, None)
     hi       = mu_real + 1.645 * sig_real
     return mu_real, lo, hi
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# V3 — WinnerModel: frozen shared encoder + cross-attention fusion
+# ══════════════════════════════════════════════════════════════════════════════
+# Feature parity with the tabular baselines: they were given 14 features while
+# the deep model got 11. TABULAR_COLS stays as-is so the existing v2 checkpoints
+# still load; v3 models use this list.
+TABULAR_COLS_V3 = [
+    "clearsky_ratio", "cloud_cover", "temperature_2m", "rain",
+    "wind_speed_10m", "relative_humidity_2m",
+    "sin_hour", "cos_hour", "sin_month", "cos_month",
+    "ghi_clearsky",
+    "ghi_lag1", "ghi_lag2", "ghi_lag3",
+]
+
+
+class WinnerModel(nn.Module):
+    """One frozen EfficientNet-B0 encoder shared across frames, cross-attention
+    fusion in place of the physics gate, predicting k_t rather than GHI.
+
+    Design notes:
+      * ONE encoder, weight-tied over the 3 frames + RoI, frozen. The v2 model
+        carried ~15.5M params on ~5k samples and its validation curve turned
+        upward the moment the CNN unfroze at epoch 20.
+      * Cross-attention replaces the scalar gate: the gate collapsed to a
+        near-constant alpha, so it could not modulate anything.
+      * A 1D conv stem ahead of the LSTM gives explicit multi-lag interaction,
+        which is the structure tabular boosters exploit and an LSTM over raw
+        lags does not get for free.
+    """
+
+    def __init__(self, n_tab=len(TABULAR_COLS_V3), hidden=256, lstm_hidden=128,
+                 dropout=0.15, freeze_cnn=True, backbone="efficientnet_b0",
+                 imagenet_init=True):
+        super().__init__()
+        self.n_tab = n_tab
+        self.hidden = hidden
+
+        # ── tabular branch: conv stem -> BiLSTM -> attention pool ────────────
+        self.tab_conv = nn.Sequential(
+            nn.Conv1d(n_tab, 64, kernel_size=3, padding=1), nn.GELU(),
+            nn.Conv1d(64, 64, kernel_size=3, padding=1), nn.GELU())
+        self.lstm = nn.LSTM(64, lstm_hidden, 2, batch_first=True,
+                            bidirectional=True, dropout=0.1)
+        self.tab_attn = nn.Sequential(
+            nn.Linear(2 * lstm_hidden, 128), nn.Tanh(), nn.Linear(128, 1))
+        self.tab_proj = nn.Linear(2 * lstm_hidden, hidden)
+
+        # ── image branch: ONE encoder, shared across timesteps ───────────────
+        self.encoder = timm.create_model(backbone, pretrained=imagenet_init,
+                                         features_only=True, out_indices=[4])
+        enc_dim = self.encoder.feature_info.channels()[0]
+        self.patch_proj = nn.Linear(enc_dim, hidden)
+        self.roi_proj = nn.Linear(enc_dim, hidden)
+        self.frozen_cnn = freeze_cnn
+        if freeze_cnn:
+            for p in self.encoder.parameters():
+                p.requires_grad = False
+            self.encoder.eval()
+
+        # ── cross-attention fusion ──────────────────────────────────────────
+        self.cross_attn = nn.MultiheadAttention(hidden, num_heads=8,
+                                                dropout=0.1, batch_first=True)
+        self.norm = nn.LayerNorm(hidden)
+
+        # ── head: 3 k_t means + 3 sigmas ────────────────────────────────────
+        self.head = nn.Sequential(
+            nn.Linear(hidden + 3, 256), nn.GELU(), nn.Dropout(dropout),
+            nn.Linear(256, 128), nn.LayerNorm(128), nn.GELU(),
+            nn.Linear(128, 6))
+
+    def train(self, mode=True):
+        super().train(mode)
+        if self.frozen_cnn:
+            self.encoder.eval()      # keep frozen BN statistics fixed
+        return self
+
+    def _encode(self, x):
+        if self.frozen_cnn:
+            with torch.no_grad():
+                f = self.encoder(x)[0]
+        else:
+            f = self.encoder(x)[0]
+        return f.flatten(2).transpose(1, 2)          # (B, HW, C)
+
+    def forward(self, tab, frame_t, frame_t1, frame_t2, roi, cs_future, **_):
+        # tabular: (B, T, n_tab) -> conv over time -> BiLSTM -> attention pool
+        x = self.tab_conv(tab.transpose(1, 2)).transpose(1, 2)
+        h_seq, _ = self.lstm(x)
+        w = torch.softmax(self.tab_attn(h_seq), dim=1)
+        h_t = self.tab_proj((h_seq * w).sum(1))      # (B, hidden)
+
+        patches = torch.cat([
+            self.patch_proj(self._encode(frame_t)),
+            self.patch_proj(self._encode(frame_t1)),
+            self.patch_proj(self._encode(frame_t2)),
+            self.roi_proj(self._encode(roi)),
+        ], dim=1)
+
+        h_a, _ = self.cross_attn(h_t.unsqueeze(1), patches, patches)
+        fused = self.norm(h_t + h_a.squeeze(1))
+
+        out = self.head(torch.cat([fused, cs_future], dim=-1))
+        mu, sigma = out[:, :3], F.softplus(out[:, 3:]) + 1e-4
+        return mu, sigma
+
+
+def kt_to_ghi(kt, cs_future, kt_cap=1.15):
+    """k_t prediction -> GHI, with the physics cap applied in k_t space."""
+    return np.clip(kt, 0.0, kt_cap) * cs_future
