@@ -1,0 +1,51 @@
+{
+  "forecast_time_sgt": "2026-09-21 11:00",
+  "forecasts": [
+    {
+      "horizon": "t+1h",
+      "time_sgt": "2026-09-21 12:00",
+      "ghi_forecast_wm2": 656.2,
+      "ghi_lower_90": 487.9,
+      "ghi_upper_90": 824.5,
+      "clearsky_wm2": 914.4,
+      "capped": false
+    },
+    {
+      "horizon": "t+2h",
+      "time_sgt": "2026-09-21 13:00",
+      "ghi_forecast_wm2": 707.9,
+      "ghi_lower_90": 489.8,
+      "ghi_upper_90": 925.9,
+      "clearsky_wm2": 951.0,
+      "capped": false
+    },
+    {
+      "horizon": "t+3h",
+      "time_sgt": "2026-09-21 14:00",
+      "ghi_forecast_wm2": 673.7,
+      "ghi_lower_90": 420.3,
+      "ghi_upper_90": 927.1,
+      "clearsky_wm2": 908.9,
+      "capped": false
+    }
+  ],
+  "observed_now": {
+    "_source": "data.gov.sg stations - context only, NOT model input",
+    "temperature_2m": 30.922222222222224,
+    "rain": 0.0,
+    "relative_humidity_2m": 74.3,
+    "wind_speed_10m": 4.4333333333333345,
+    "cloud_cover": 0.0
+  },
+  "model_inputs": {
+    "_source": "Open-Meteo / ERA5 - the same source training used",
+    "clearsky_ratio": 0.8515,
+    "cloud_cover_pct": 75.0
+  },
+  "diagnostics": {
+    "image_ok": true,
+    "outside_training_hours": false,
+    "lookback_ends": "2026-09-21 11:00:00",
+    "inputs_out_of_distribution": []
+  }
+}
