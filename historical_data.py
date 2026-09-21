@@ -1,5 +1,6 @@
 import requests
 import pandas as pd
+import numpy as np
 import os
 from datetime import datetime
 import pvlib  # You'll need to install this: pip install pvlib
@@ -39,12 +40,27 @@ class HistoricalDataCollector:
             # --- STEP: ADD PV PHYSICS ---
             location = pvlib.location.Location(self.lat, self.lon, tz='Asia/Singapore')
             
-            # Calculate Theoretical Clear Sky Radiation for these timestamps
-            # FIX: Use timezone-aware datetime from the start
+            # Clear-sky GHI on the SAME time convention as the target.
+            # Open-Meteo labels each hourly value with the END of its averaging
+            # window (18:00 is the 17:00->18:00 mean), but get_clearsky() at the
+            # label instant is a point value. Mixing the two made clearsky_ratio
+            # ramp monotonically across the day -- max 0.691 at 08:00 rising to
+            # 1.432 at 17:00, where a clear-sky index should cap near 1.0-1.1 at
+            # every hour. Averaging clear-sky over the preceding hour puts both
+            # on the same footing: hours 09:00-17:00 then land at 1.04-1.11.
+            #
+            # This mirrors model.compute_clearsky_hour_mean(), which already
+            # uses this convention for the inference physics cap. Computed
+            # vectorised here (one get_clearsky call for all sub-steps) because
+            # calling that helper per row would be far too slow for a full
+            # dataset build.
             times = pd.DatetimeIndex(df['timestamp'], tz='Asia/Singapore')
-            
-            clearsky = location.get_clearsky(times)
-            df['ghi_clearsky'] = clearsky['ghi'].values
+            _offsets = [pd.Timedelta(minutes=m)
+                        for m in (-50, -40, -30, -20, -10, 0)]
+            _sub = pd.DatetimeIndex(
+                np.concatenate([(times + o).values for o in _offsets]))
+            _cs = location.get_clearsky(_sub)['ghi'].values
+            df['ghi_clearsky'] = _cs.reshape(len(_offsets), len(df)).mean(axis=0)
             
             # Simulate a 1kW PV System Output
             # Efficiency drops 0.4% per degree above 25°C (standard for SG)

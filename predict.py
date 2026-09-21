@@ -48,6 +48,8 @@ from model import (
     denormalise_forecast,
     compute_gate_features,
     check_inputs_in_distribution,
+    TRAIN_HOUR_START,
+    TRAIN_HOUR_END,
 )
 
 warnings.filterwarnings("ignore")
@@ -69,8 +71,9 @@ SATELLITE_PREV2 = "./datanow/satellite/himawari_prev2.png"
 # (cloud enhancement), so allow 15% headroom rather than a hard ceiling.
 CLEARSKY_HEADROOM = 1.15
 
-# The model only ever saw these hours during training.
-TRAIN_HOUR_START, TRAIN_HOUR_END = 8, 17
+# The model only ever saw these hours during training. TRAIN_HOUR_START /
+# TRAIN_HOUR_END come from model.py, which also uses them to keep night rows out
+# of the lookback window - one definition, so the two cannot drift apart.
 
 
 # ══════════════════════════════════════════════════════════════════════════════

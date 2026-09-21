@@ -43,6 +43,12 @@ TABULAR_COLS = [
 ]
 
 WINDOW_SIZE = 24
+
+# The training CSV is daylight-only: combined_dataset.csv holds hours 08:00-17:00
+# SGT and nothing else, so a 24-step training window spans ~2.4 days of daylight
+# and never contains a zero-GHI row. predict.py imports these rather than
+# redeclaring them, so the two cannot drift apart.
+TRAIN_HOUR_START, TRAIN_HOUR_END = 8, 17
 FLOW_SIZE   = 64          # resolution used when computing optical flow (v2)
 ZEROS_IMG   = torch.zeros((3, 224, 224), dtype=torch.float32)
 
@@ -592,7 +598,16 @@ def build_lookback_window(df: pd.DataFrame, train_stats: dict,
     df = _add_engineered_features(df)
 
     ref_naive = pd.Timestamp(reference_time).replace(tzinfo=None)
-    past      = df[df["timestamp"] <= ref_naive].tail(WINDOW_SIZE)
+
+    # Daylight hours ONLY. extend_with_recent() tops the frame up from
+    # Open-Meteo's live API, which returns all 24 hours of the day, so a plain
+    # tail(24) returns one calendar day - 14 of whose rows are night with
+    # GHI = 0. Training never saw a single such row, so 58% of the live window
+    # was input the model had no basis for. Verified live on 2026-09-21.
+    past = df[
+        (df["timestamp"] <= ref_naive)
+        & (df["timestamp"].dt.hour.between(TRAIN_HOUR_START, TRAIN_HOUR_END))
+    ].tail(WINDOW_SIZE)
 
     if len(past) < WINDOW_SIZE:
         # Pad with the TRAINING MEAN, which normalises to exactly 0. Zero-padding
@@ -612,10 +627,17 @@ def build_lookback_window(df: pd.DataFrame, train_stats: dict,
     else:
         tab = past[TABULAR_COLS].copy()
 
+    assert len(tab) == WINDOW_SIZE, (
+        f"lookback window has {len(tab)} rows, expected {WINDOW_SIZE}")
+    if len(past):
+        _h = past["timestamp"].dt.hour
+        assert _h.between(TRAIN_HOUR_START, TRAIN_HOUR_END).all(), (
+            f"night row in lookback window: hours {sorted(_h.unique())}")
+
     mean = np.array(train_stats["mean"], dtype=np.float32)
     std  = np.array(train_stats["std"],  dtype=np.float32)
     arr  = (tab.values.astype(np.float32) - mean) / std
-    return torch.from_numpy(arr).float().unsqueeze(0)   # (1, 24, 11)
+    return torch.from_numpy(arr).float().unsqueeze(0)   # (1, WINDOW_SIZE, n_tab)
 
 
 def check_inputs_in_distribution(tabular_seq, gate, train_stats,
@@ -635,18 +657,31 @@ def check_inputs_in_distribution(tabular_seq, gate, train_stats,
     """
     mean = np.asarray(train_stats["mean"], dtype=np.float64)
     std  = np.asarray(train_stats["std"],  dtype=np.float64)
-    z    = tabular_seq[0, -1].detach().cpu().numpy().astype(np.float64)
 
-    print("\n  Input check - reference hour vs training distribution")
-    print(f"    {'feature':<24}{'value':>10}{'z':>8}")
+    # Score the WHOLE window, not just the reference hour. Scoring only the last
+    # timestep missed the night-row bug entirely: the reference hour was daylight
+    # and perfectly in-distribution while 14 earlier steps were zero-GHI night
+    # rows the model had never seen.
+    Z = tabular_seq[0].detach().cpu().numpy().astype(np.float64)   # (T, n_tab)
+    T = Z.shape[0]
+
+    print(f"\n  Input check - {T}-step window vs training distribution")
+    print(f"    {'feature':<24}{'value@ref':>11}{'z@ref':>8}{'worst z':>9}"
+          f"{'step':>7}")
     bad = []
-    for name, zi, m, sd in zip(TABULAR_COLS, z, mean, std):
-        raw  = zi * sd + m
-        flag = ""
-        if (not np.isfinite(zi)) or abs(zi) > sigma:
+    for j, (name, m, sd) in enumerate(zip(TABULAR_COLS, mean, std)):
+        col   = Z[:, j]
+        z_ref = col[-1]
+        raw   = z_ref * sd + m
+        k     = int(np.nanargmax(np.abs(col))) if np.isfinite(col).any() else -1
+        z_bad = col[k]
+        flag  = ""
+        if (not np.isfinite(col).all()) or abs(z_bad) > sigma:
             flag = "  <-- OUT OF DISTRIBUTION"
-            bad.append((name, float(zi)))
-        print(f"    {name:<24}{raw:10.2f}{zi:+8.2f}{flag}")
+            bad.append((name, float(z_bad)))
+        step = "ref" if k == T - 1 else f"t-{T - 1 - k}"
+        print(f"    {name:<24}{raw:11.2f}{z_ref:+8.2f}{z_bad:+9.2f}{step:>7}"
+              f"{flag}")
 
     if gate is not None:
         g = gate.detach().cpu().numpy().ravel()
@@ -676,6 +711,8 @@ def check_inputs_in_distribution(tabular_seq, gate, train_stats,
               + ", ".join(f"{n} (z={zz:+.1f})" for n, zz in bad))
         print("      This forecast is extrapolation, not interpolation - the "
               "uncertainty band below does NOT account for it.")
+        print("      A z flagged at a non-ref step means the 24h history is "
+              "wrong, not the current hour.")
     else:
         print(f"\n  \u2713 all inputs within \u00b1{sigma:.0f}\u03c3 of training")
     return bad
