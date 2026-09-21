@@ -1,0 +1,15 @@
+torch>=2.2
+torchvision
+timm>=1.0
+numpy
+pandas
+pillow
+requests
+pvlib
+scikit-learn
+lightgbm
+scipy
+pyyaml
+opencv-python-headless
+psutil
+h5py
