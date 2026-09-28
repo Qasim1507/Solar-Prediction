@@ -22,8 +22,8 @@ Not in git, rebuilt on the pod:
 ## 1. Setup
 
 ```bash
-git clone https://github.com/Qasim1507/Project.git
-cd Project
+git clone https://github.com/Qasim1507/Solar-Prediction.git
+cd Solar-Prediction
 bash scripts/runpod_setup.sh
 ```
 
@@ -110,7 +110,7 @@ A push needs credentials the HTTPS clone doesn't carry. Use a GitHub personal
 access token with `repo` scope:
 
 ```bash
-git remote set-url origin https://<TOKEN>@github.com/Qasim1507/Project.git
+git remote set-url origin https://<TOKEN>@github.com/Qasim1507/Solar-Prediction.git
 ```
 
 Treat that token as a secret: it goes in the pod shell only, never into a
