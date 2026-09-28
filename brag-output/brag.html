@@ -1,0 +1,436 @@
+<title>Singapore Solar Nowcast</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@400;600;700&display=swap">
+<style>
+  :root{
+    --ground:#0B1020;
+    --panel:#111A2E;
+    --panel-2:#16203A;
+    --line:#233150;
+    --text:#E8ECF4;
+    --muted:#6F7D97;
+    --amber:#FFB627;
+    --cyan:#4CC9F0;
+    --display:"IBM Plex Sans Condensed","Helvetica Neue",Arial,sans-serif;
+    --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{
+    background:var(--ground);
+    color:var(--text);
+    font-family:var(--mono);
+    margin:0;
+    padding-block:28px;
+    padding-left:16px;padding-right:16px;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1000px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+
+  .eyebrow{
+    display:flex;flex-wrap:wrap;gap:10px;align-items:baseline;
+    font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);
+  }
+  .eyebrow b{color:var(--text);font-weight:600;letter-spacing:.1em}
+
+  /* ---- stage ---- */
+  .stage{
+    position:relative;
+    aspect-ratio:16/9;
+    max-width:100%;
+    background:
+      radial-gradient(120% 90% at 50% 118%, rgba(255,182,39,.16) 0%, rgba(76,201,240,.07) 38%, transparent 70%),
+      var(--panel);
+    border:1px solid var(--line);
+    border-radius:4px;
+    overflow:hidden;
+    isolation:isolate;
+  }
+  /* drifting horizon */
+  .horizon{
+    position:absolute;inset:auto 0 0 0;height:62%;
+    background:linear-gradient(to top, rgba(255,182,39,.22), rgba(76,201,240,.05) 55%, transparent);
+    transform:translateY(18%);
+    opacity:0;
+  }
+  .stage.lit .horizon{animation:rise 6s cubic-bezier(.25,.1,.25,1) forwards}
+  @keyframes rise{to{transform:translateY(0);opacity:1}}
+
+  .scene{
+    position:absolute;inset:0;
+    display:flex;flex-direction:column;justify-content:center;
+    padding:clamp(18px,4.2vw,52px);
+    opacity:0;visibility:hidden;
+    transition:opacity .45s ease;
+  }
+  .scene.on{opacity:1;visibility:visible}
+
+  /* ---- s1 ---- */
+  .ask{
+    font-family:var(--display);font-weight:700;
+    font-size:clamp(26px,5.6vw,60px);line-height:1.04;
+    text-wrap:balance;max-width:16ch;
+    transform:translateY(10px);transition:transform .8s cubic-bezier(.16,1,.3,1);
+  }
+  .scene.on .ask{transform:none}
+  .ask em{font-style:normal;color:var(--amber)}
+
+  /* ---- s2 terminal ---- */
+  .term{font-size:clamp(10px,1.65vw,17px);line-height:1.85}
+  .cmd{color:var(--text)}
+  .cmd .dollar{color:var(--muted)}
+  .ok{color:var(--muted);font-size:.86em}
+  .ok .tick{color:var(--cyan)}
+  .rows{margin-top:.7em;display:flex;flex-direction:column;gap:.18em}
+  .row{
+    display:grid;
+    grid-template-columns:4.6em 4.6em minmax(0,7.4em) minmax(0,10.4em) auto;
+    gap:.35em 1em;align-items:baseline;
+    font-variant-numeric:tabular-nums;
+    opacity:0;transform:translateY(6px);
+    transition:opacity .34s ease,transform .34s ease;
+  }
+  .row.in{opacity:1;transform:none}
+  .row .h{color:var(--muted)}
+  .row .t{color:var(--muted)}
+  .row .v{color:var(--amber);font-weight:600}
+  .row .ci{color:var(--cyan)}
+  .row .kt{color:var(--muted)}
+
+  /* ---- s3 internals ---- */
+  .chips{display:flex;flex-wrap:wrap;gap:.5em .7em;margin-bottom:clamp(14px,2.6vw,26px)}
+  .chip{
+    font-size:clamp(9px,1.35vw,13px);letter-spacing:.09em;text-transform:uppercase;
+    color:var(--muted);border:1px solid var(--line);border-radius:2px;
+    padding:.42em .7em;background:var(--panel-2);
+    opacity:0;transform:translateY(5px);
+    transition:opacity .3s ease,transform .3s ease;
+  }
+  .chip.in{opacity:1;transform:none}
+  .count{
+    font-family:var(--display);font-weight:700;
+    font-size:clamp(34px,8.4vw,86px);line-height:1;color:var(--amber);
+    font-variant-numeric:tabular-nums;letter-spacing:-.01em;
+  }
+  .count-sub{margin-top:.5em;color:var(--muted);font-size:clamp(10px,1.5vw,14px);letter-spacing:.06em}
+  .count-sub span{color:var(--cyan)}
+
+  /* ---- s4 bars ---- */
+  .bars-head{
+    color:var(--muted);font-size:clamp(9px,1.3vw,12px);
+    letter-spacing:.1em;text-transform:uppercase;margin-bottom:clamp(12px,2.2vw,22px);
+  }
+  .bars{display:flex;flex-direction:column;gap:clamp(7px,1.5vw,14px)}
+  .bar{display:grid;grid-template-columns:minmax(0,9.6em) 1fr 4.2em;gap:.8em;align-items:center;font-size:clamp(9px,1.5vw,15px)}
+  .bar .nm{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bar .track{height:clamp(11px,1.9vw,20px);background:var(--panel-2);border-radius:1px;overflow:hidden}
+  .bar .fill{height:100%;width:0;background:var(--line);transition:width .82s cubic-bezier(.16,1,.3,1)}
+  .bar .mae{text-align:right;color:var(--text);font-variant-numeric:tabular-nums;font-weight:500}
+  .bar.win .nm,.bar.win .mae{color:var(--amber)}
+  .bar.win .fill{background:linear-gradient(90deg,rgba(255,182,39,.55),var(--amber))}
+  .bar.win.glow .track{box-shadow:0 0 0 1px rgba(255,182,39,.32)}
+
+  /* ---- s5 ---- */
+  .delta{
+    font-family:var(--display);font-weight:700;color:var(--amber);
+    font-size:clamp(22px,4.6vw,48px);line-height:1.1;font-variant-numeric:tabular-nums;
+  }
+  .caveat{margin-top:.75em;color:var(--muted);font-size:clamp(11px,1.7vw,17px);max-width:44ch}
+  .sig{
+    margin-top:clamp(18px,3.4vw,36px);padding-top:clamp(12px,2.2vw,20px);
+    border-top:1px solid var(--line);
+  }
+  .sig .name{font-family:var(--display);font-weight:600;font-size:clamp(15px,2.6vw,28px)}
+  .sig .meta{color:var(--muted);font-size:clamp(9px,1.3vw,13px);letter-spacing:.1em;margin-top:.35em}
+
+  /* ---- transport ---- */
+  .transport{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .btn{
+    font-family:var(--mono);font-size:12px;letter-spacing:.06em;
+    color:var(--text);background:var(--panel-2);
+    border:1px solid var(--line);border-radius:2px;
+    padding:8px 14px;cursor:pointer;
+  }
+  .btn:hover{border-color:var(--amber);color:var(--amber)}
+  .btn:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+  .scrub{flex:1 1 180px;height:2px;background:var(--line);position:relative;min-width:120px}
+  .scrub i{position:absolute;inset:0 auto 0 0;width:0;background:var(--amber);display:block}
+  .clock{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
+  .dots{display:flex;gap:6px}
+  .dot{
+    width:26px;height:4px;padding:0;border:0;border-radius:1px;
+    background:var(--line);cursor:pointer;
+  }
+  .dot[aria-current="true"]{background:var(--amber)}
+  .dot:focus-visible{outline:2px solid var(--cyan);outline-offset:3px}
+
+  .foot{color:var(--muted);font-size:11px;line-height:1.7}
+  .foot code{color:var(--cyan);font-size:.95em}
+
+  /* reduced motion: storyboard, no timers */
+  @media (prefers-reduced-motion:reduce){
+    .stage{aspect-ratio:auto;display:flex;flex-direction:column}
+    .scene{position:static;opacity:1;visibility:visible;border-bottom:1px solid var(--line);transition:none}
+    .scene:last-child{border-bottom:0}
+    .row,.chip{opacity:1;transform:none;transition:none}
+    .bar .fill{transition:none}
+    .ask{transform:none;transition:none}
+    .horizon{display:none}
+    .transport{display:none}
+  }
+</style>
+
+<div class="wrap">
+  <div class="eyebrow">
+    <b>Singapore Solar Nowcast</b>
+    <span>Himawari-8 &middot; ERA5 &middot; t+1/2/3h</span>
+  </div>
+
+  <div class="stage" id="stage">
+    <div class="horizon"></div>
+
+    <!-- 1 -->
+    <section class="scene" data-scene="0">
+      <p class="ask">Where will the sun be in <em>three hours</em>?</p>
+    </section>
+
+    <!-- 2 -->
+    <section class="scene" data-scene="1">
+      <div class="term">
+        <div class="cmd"><span class="dollar">$</span> python predict_v3.py</div>
+        <div class="ok"><span class="tick">&#10003;</span> all inputs within &plusmn;3&sigma; of training</div>
+        <div class="rows">
+          <div class="row" data-row="0">
+            <span class="h">t+1h</span><span class="t">15:00</span>
+            <span class="v">662.3 W/m&sup2;</span>
+            <span class="ci">[555.0 &ndash; 769.6]</span>
+            <span class="kt">k_t 0.783</span>
+          </div>
+          <div class="row" data-row="1">
+            <span class="h">t+2h</span><span class="t">16:00</span>
+            <span class="v">534.2 W/m&sup2;</span>
+            <span class="ci">[429.1 &ndash; 639.3]</span>
+            <span class="kt">k_t 0.775</span>
+          </div>
+          <div class="row" data-row="2">
+            <span class="h">t+3h</span><span class="t">17:00</span>
+            <span class="v">377.9 W/m&sup2;</span>
+            <span class="ci">[300.8 &ndash; 455.0]</span>
+            <span class="kt">k_t 0.794</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="scene" data-scene="2">
+      <div class="chips">
+        <span class="chip" data-chip="0">3 satellite frames</span>
+        <span class="chip" data-chip="1">10 min apart</span>
+        <span class="chip" data-chip="2">24h weather</span>
+        <span class="chip" data-chip="3">14 features</span>
+      </div>
+      <div class="count" id="count">0</div>
+      <div class="count-sub">trainable parameters &middot; <span>encoder frozen</span></div>
+    </section>
+
+    <!-- 4 -->
+    <section class="scene" data-scene="3">
+      <div class="bars-head">Held-out test &middot; n = 1015 &middot; never used for training or selection &middot; MAE W/m&sup2;, lower is better</div>
+      <div class="bars">
+        <div class="bar win" data-bar="0" data-pct="74">
+          <span class="nm">v3 ensemble</span><span class="track"><i class="fill"></i></span><span class="mae">63.38</span>
+        </div>
+        <div class="bar" data-bar="1" data-pct="77">
+          <span class="nm">LightGBM</span><span class="track"><i class="fill"></i></span><span class="mae">66.23</span>
+        </div>
+        <div class="bar" data-bar="2" data-pct="77">
+          <span class="nm">Random Forest</span><span class="track"><i class="fill"></i></span><span class="mae">66.34</span>
+        </div>
+        <div class="bar" data-bar="3" data-pct="100">
+          <span class="nm">smart persistence</span><span class="track"><i class="fill"></i></span><span class="mae">86.01</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="scene" data-scene="4">
+      <div class="delta">&Delta; &minus;2.84 W/m&sup2; &middot; p = 0.0402</div>
+      <p class="caveat">Marginally significant. We&rsquo;d rather say so.</p>
+      <div class="sig">
+        <div class="name">Singapore Solar Nowcast</div>
+        <div class="meta">1,236,359 params &middot; 3 seeds &middot; held-out test</div>
+      </div>
+    </section>
+  </div>
+
+  <div class="transport">
+    <button class="btn" id="play" type="button">Replay</button>
+    <span class="scrub" aria-hidden="true"><i id="prog"></i></span>
+    <span class="clock" id="clock">0.0s / 18.0s</span>
+    <span class="dots" id="dots"></span>
+  </div>
+
+  <p class="foot">
+    Every figure is real. Forecast rows from <code>forecast_latest_v3.json</code>, issued 14:00 SGT.
+    MAE table, &Delta; and p-value from <code>analysis/v3_results_test.json</code>.
+    Parameter count from <code>train.py</code>. Nothing rounded in the flattering direction.
+  </p>
+</div>
+
+<script>
+(function(){
+  var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var stage  = document.getElementById("stage");
+  var scenes = Array.prototype.slice.call(document.querySelectorAll(".scene"));
+  var prog   = document.getElementById("prog");
+  var clock  = document.getElementById("clock");
+  var playBtn= document.getElementById("play");
+  var dotsBox= document.getElementById("dots");
+
+  // scene start times (ms) and total runtime
+  var MARKS = [0, 2500, 7500, 11500, 16000];
+  var TOTAL = 18000;
+
+  // build scene dots
+  var dots = MARKS.map(function(m, i){
+    var b = document.createElement("button");
+    b.type = "button"; b.className = "dot";
+    b.setAttribute("aria-label", "Scene " + (i+1));
+    b.addEventListener("click", function(){ seek(m); });
+    dotsBox.appendChild(b);
+    return b;
+  });
+
+  var t0 = 0, raf = 0, playing = false, current = -1;
+
+  function resetScene(i){
+    if(i === 1){
+      document.querySelectorAll(".row").forEach(function(r){ r.classList.remove("in"); });
+    } else if(i === 2){
+      document.querySelectorAll(".chip").forEach(function(c){ c.classList.remove("in"); });
+      document.getElementById("count").textContent = "0";
+    } else if(i === 3){
+      document.querySelectorAll(".bar").forEach(function(b){
+        b.querySelector(".fill").style.width = "0";
+        b.classList.remove("glow");
+      });
+    }
+  }
+
+  function sceneAt(ms){
+    var idx = 0;
+    for(var i=0;i<MARKS.length;i++){ if(ms >= MARKS[i]) idx = i; }
+    return idx;
+  }
+
+  // per-scene internal animations, driven by elapsed time within the scene
+  function tickScene(i, local){
+    if(i === 1){
+      [1200, 1730, 2250].forEach(function(at, n){
+        var el = document.querySelector('.row[data-row="'+n+'"]');
+        if(el) el.classList.toggle("in", local >= at);
+      });
+    } else if(i === 2){
+      [120, 520, 920, 1320].forEach(function(at, n){
+        var el = document.querySelector('.chip[data-chip="'+n+'"]');
+        if(el) el.classList.toggle("in", local >= at);
+      });
+      var startAt = 1500, dur = 1400, target = 1236359;
+      var el = document.getElementById("count");
+      if(local < startAt){ el.textContent = "0"; }
+      else {
+        var p = Math.min((local - startAt) / dur, 1);
+        var eased = 1 - Math.pow(1 - p, 3);
+        el.textContent = Math.round(target * eased).toLocaleString("en-US");
+      }
+    } else if(i === 3){
+      [100, 600, 1100, 1600].forEach(function(at, n){
+        var b = document.querySelector('.bar[data-bar="'+n+'"]');
+        if(!b) return;
+        var f = b.querySelector(".fill");
+        f.style.width = local >= at ? (b.getAttribute("data-pct") + "%") : "0";
+        if(n === 0) b.classList.toggle("glow", local >= at + 700);
+      });
+    }
+  }
+
+  function show(i){
+    if(i === current) return;
+    current = i;
+    scenes.forEach(function(s, n){ s.classList.toggle("on", n === i); });
+    dots.forEach(function(d, n){ d.setAttribute("aria-current", n === i ? "true" : "false"); });
+  }
+
+  function render(ms){
+    var i = sceneAt(ms);
+    if(i !== current){
+      // entering a new scene: clear the one we left and the one we enter
+      for(var n=0;n<scenes.length;n++){ if(n !== i) resetScene(n); }
+      resetScene(i);
+      show(i);
+    }
+    tickScene(i, ms - MARKS[i]);
+    var pct = Math.min(ms / TOTAL, 1) * 100;
+    prog.style.width = pct + "%";
+    clock.textContent = (ms/1000).toFixed(1) + "s / 18.0s";
+  }
+
+  function loop(now){
+    if(!playing) return;
+    var ms = now - t0;
+    if(ms >= TOTAL){
+      render(TOTAL - 1);
+      prog.style.width = "100%";
+      clock.textContent = "18.0s / 18.0s";
+      playing = false;
+      playBtn.textContent = "Replay";
+      return;
+    }
+    render(ms);
+    raf = requestAnimationFrame(loop);
+  }
+
+  function start(from){
+    cancelAnimationFrame(raf);
+    stage.classList.add("lit");
+    playing = true;
+    playBtn.textContent = "Pause";
+    t0 = performance.now() - (from || 0);
+    raf = requestAnimationFrame(loop);
+  }
+
+  function seek(ms){
+    cancelAnimationFrame(raf);
+    playing = false;
+    playBtn.textContent = "Replay";
+    current = -1;
+    render(ms);
+  }
+
+  playBtn.addEventListener("click", function(){
+    if(playing){
+      cancelAnimationFrame(raf);
+      playing = false;
+      playBtn.textContent = "Resume";
+    } else {
+      var at = parseFloat(clock.textContent) * 1000;
+      start(at >= TOTAL - 50 ? 0 : at);
+    }
+  });
+
+  if(reduce){
+    // storyboard mode: every scene visible and fully settled, no timers
+    scenes.forEach(function(s){ s.classList.add("on"); });
+    document.querySelectorAll(".row,.chip").forEach(function(e){ e.classList.add("in"); });
+    document.querySelectorAll(".bar").forEach(function(b){
+      b.querySelector(".fill").style.width = b.getAttribute("data-pct") + "%";
+    });
+    document.getElementById("count").textContent = (1236359).toLocaleString("en-US");
+  } else {
+    // rest on scene 1, fully readable, then play
+    render(0);
+    setTimeout(function(){ start(0); }, 650);
+  }
+})();
+</script>
