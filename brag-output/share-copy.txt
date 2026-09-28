@@ -1,0 +1,56 @@
+SHARE COPY — Singapore Solar Nowcast (v3)
+Artifact: https://claude.ai/artifact/KFHqBcYyRvyuNraNxZab8G
+
+--- Primary (X / LinkedIn / Discord) ---
+
+1.2M parameters read three Himawari-8 frames ten minutes apart plus 24h of
+weather, and forecast Singapore's solar irradiance 1-3 hours out.
+
+Beats LightGBM by 2.84 W/m² on held-out data.
+p = 0.0402 — marginal, and I'd rather say so than not.
+
+
+--- Short (X, under 280) ---
+
+Singapore solar nowcast, v3: 1.2M params, 3 Himawari frames, 24h of weather →
+GHI at t+1/2/3h with calibrated intervals.
+
+63.38 vs LightGBM's 66.23 on held-out test (n=1015).
+Δ −2.84 W/m², p = 0.0402. Marginal. Saying so is the point.
+
+
+--- Technical (HN / r/MachineLearning) ---
+
+Solar irradiance nowcasting for Singapore, 1-3h ahead.
+
+Architecture: one EfficientNet-B0 encoder, frozen and weight-tied across three
+satellite frames + an RoI crop, cross-attention fusion onto a BiLSTM over 24h
+of weather. 4.8M params, 1.24M trainable — deliberately small for ~5k samples.
+
+Target is the clear-sky index k_t rather than raw GHI, so the loss isn't
+dominated by the diurnal cycle, with the NLL weighted by future clear-sky.
+Checkpoints selected on validation MAE, not NLL, because MAE is what's reported.
+
+Held-out test (n=1015, never used for training or selection):
+  v3 ensemble (3 seeds, precision-weighted)  63.38
+  LightGBM                                   66.23
+  Random Forest                              66.34
+  smart persistence                          86.01
+
+Diebold-Mariano on the loss difference: Δ −2.84 W/m², DM −2.05, p = 0.0402,
+HAC lags 15. All three seeds beat LightGBM individually.
+
+Caveats I'd want to see if someone else posted this:
+  - p = 0.0402 is marginal. On synthetic AR(1) nulls at this n the test fired
+    at ~8% against a nominal 5%, so read it as weak evidence, not settled.
+  - The target is ERA5 shortwave radiation, not a pyranometer, and the tabular
+    features come from the same ERA5 call. Not comparable to literature that
+    validates against ground measurements.
+  - Numbers are from an Apple-silicon run. The same v2 checkpoints score 11-19
+    W/m² apart between this machine and RunPod for reasons not yet found.
+
+
+--- Caption for the artifact link ---
+
+18 seconds: the question, the terminal answering it, what's inside, the
+leaderboard, and the p-value — on screen, not in a footnote.

@@ -85,7 +85,13 @@ LOG_COLUMNS = [
     # diagnostic columns
     "clearsky_wm2", "kt_forecast", "kt_actual", "kt_bias",
     "sp_forecast_wm2", "sp_abs_error_wm2",
+    # which generator produced forecast_wm2 — "v3_ensemble" or
+    # "smart_persistence". Rows written before the t+1h A/B have none; read_log
+    # backfills them to v3_ensemble, which is what they were.
+    "method",
 ]
+
+V3_METHOD = "v3_ensemble"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -192,6 +198,11 @@ def read_log(path: str) -> pd.DataFrame:
         df["kt_forecast"] = df["forecast_wm2"] / df["clearsky_wm2"]
         df["kt_actual"]   = df["actual_wm2"]   / df["clearsky_wm2"]
         df["kt_bias"]     = df["kt_forecast"]  - df["kt_actual"]
+
+    if "method" not in df.columns:
+        df["method"] = V3_METHOD
+    else:
+        df["method"] = df["method"].fillna(V3_METHOD)
 
     return df.reindex(columns=LOG_COLUMNS)
 
@@ -327,6 +338,7 @@ def verify(model_fallback=True, log_path=LOG_PATH, forecast_path=FORECAST_PATH):
             "kt_bias":          round(bias, 4),
             "sp_forecast_wm2":  round(sp, 1) if np.isfinite(sp) else "",
             "sp_abs_error_wm2": round(sp_err, 1) if np.isfinite(sp_err) else "",
+            "method":           f.get("method", V3_METHOD),
         })
 
     print("-" * 74)
@@ -334,10 +346,19 @@ def verify(model_fallback=True, log_path=LOG_PATH, forecast_path=FORECAST_PATH):
     if rows:
         n = append_log(log_path, rows)
         print(f"\n  ✓ Logged {n} new row(s) → {log_path}")
-        mb = np.nanmean([r["kt_bias"] for r in rows])
-        print(f"  This run: MAE {np.mean([r['abs_error_wm2'] for r in rows]):.1f} W/m²  |  "
-              f"mean k_t bias {mb:+.3f} "
-              f"({'under' if mb < 0 else 'over'}-forecasting the sky)")
+        v3r = [r for r in rows if r["method"] == V3_METHOD]
+        chr_ = [r for r in rows if r["method"] == "smart_persistence"]
+        if v3r:
+            mb = np.nanmean([r["kt_bias"] for r in v3r])
+            print(f"  This run (v3): MAE "
+                  f"{np.mean([r['abs_error_wm2'] for r in v3r]):.1f} W/m²  |  "
+                  f"mean k_t bias {mb:+.3f} "
+                  f"({'under' if mb < 0 else 'over'}-forecasting the sky)")
+        for r in chr_:
+            v3_t1 = next((x for x in v3r if x["horizon"] == "t+1h"), None)
+            note = (f"  vs v3 {v3_t1['abs_error_wm2']:.1f}" if v3_t1 else "")
+            print(f"  This run (t+1h smart-persistence): "
+                  f"err {r['abs_error_wm2']:.1f} W/m²{note}")
         if any(r["source"] == "model*" for r in rows):
             print("  * model re-estimate — self-consistency only, not verification.")
     print()
@@ -348,10 +369,19 @@ def verify(model_fallback=True, log_path=LOG_PATH, forecast_path=FORECAST_PATH):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def report(log_path=LOG_PATH):
-    df = read_log(log_path)
-    df = df[df["source"] == "measured"].copy()
-    if df.empty:
+    full = read_log(log_path)
+    full = full[full["source"] == "measured"].copy()
+    if full.empty:
         print(f"\n  No measured rows in {log_path} yet — nothing to report.\n")
+        return
+
+    # Sections 1-5 describe the v3 ensemble. The t+1h-sp challenger rows are a
+    # different generator; pooling them would corrupt v3's own PICP, bias and
+    # skill figures. They get section 6 to themselves.
+    challenger = full[full["method"] == "smart_persistence"].copy()
+    df = full[full["method"] == V3_METHOD].copy()
+    if df.empty:
+        print(f"\n  No v3 rows in {log_path} yet — nothing to report.\n")
         return
 
     df["target_time"] = pd.to_datetime(df["target_time"])
@@ -453,6 +483,34 @@ def report(log_path=LOG_PATH):
             bar = "█" * max(1, int(abs(v) * 60))
             print(f"     {d}  {v:+.3f}  {bar}")
         print(f"     first → last: {daily.iloc[0]:+.3f} → {daily.iloc[-1]:+.3f}")
+
+    # ── 6. The t+1h A/B ───────────────────────────────────────────────────────
+    print(f"\n  6. t+1h: v3 vs SMART PERSISTENCE (both committed in advance)")
+    if challenger.empty:
+        print("     No t+1h-sp rows yet — run predict_v3.py with --sp-t1 (default).")
+    else:
+        challenger["abs_error_wm2"] = pd.to_numeric(
+            challenger["abs_error_wm2"], errors="coerce")
+        challenger["target_time"] = pd.to_datetime(challenger["target_time"])
+        a_ = df[df["horizon"] == "t+1h"][["target_time", "abs_error_wm2"]]
+        b_ = challenger[["target_time", "abs_error_wm2"]]
+        j = a_.merge(b_, on="target_time", suffixes=("_v3", "_sp")).dropna()
+        if j.empty:
+            print("     No day has both arms verified yet.")
+        else:
+            print(f"     {'date':12} {'v3':>8} {'smart-pers':>11} {'winner':>9}")
+            for _, r in j.sort_values("target_time").iterrows():
+                w = "v3" if r["abs_error_wm2_v3"] < r["abs_error_wm2_sp"] else "sp"
+                print(f"     {str(r['target_time'].date()):12} "
+                      f"{r['abs_error_wm2_v3']:>8.1f} {r['abs_error_wm2_sp']:>11.1f} "
+                      f"{w:>9}")
+            mv, ms = j["abs_error_wm2_v3"].mean(), j["abs_error_wm2_sp"].mean()
+            wins = int((j["abs_error_wm2_sp"] < j["abs_error_wm2_v3"]).sum())
+            print(f"     {'MAE':12} {mv:>8.1f} {ms:>11.1f}")
+            if mv > 0:
+                print(f"     smart persistence is {100*(1-ms/mv):+.1f}% vs v3 "
+                      f"on MAE, and wins {wins}/{len(j)} days")
+            print("     → run scripts/compare_t1.py for the decision rule")
 
     print(f"\n{'='*74}")
     print("  HOW TO READ THIS")
