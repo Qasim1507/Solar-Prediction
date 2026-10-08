@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Solar Nowcast</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <h1>Singapore Solar Nowcast</h1>
+      <span class="sub" id="latest">v3 ensemble</span>
+    </div>
+    <div class="actions">
+      <button id="btn-predict" data-kind="predict">Run prediction</button>
+      <button id="btn-verify" data-kind="verify">Run verification</button>
+    </div>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="predict">Prediction</button>
+    <button class="tab" data-tab="verify">Verification</button>
+    <span class="job" id="job-status">idle</span>
+  </nav>
+
+  <main>
+    <!-- Prediction -->
+    <section id="tab-predict" class="tab-panel active">
+      <div class="grid-2">
+        <div class="card">
+          <h2>Run log</h2>
+          <pre class="log" id="log-predict">Press “Run prediction” to fetch live data and forecast.</pre>
+        </div>
+        <div class="card">
+          <h2>Weather now <span class="muted" id="collected"></span></h2>
+          <div class="weather" id="weather"><span class="muted">No data yet.</span></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Satellite input frames <span class="muted">Himawari · NOAA tile T036 · updates as each frame lands</span></h2>
+        <div class="frames" id="frames"></div>
+      </div>
+
+      <div class="card">
+        <h2>Forecast <span class="muted" id="fc-time"></span></h2>
+        <div id="forecast"><span class="muted">No forecast yet.</span></div>
+        <div class="badges" id="diagnostics"></div>
+      </div>
+    </section>
+
+    <!-- Verification -->
+    <section id="tab-verify" class="tab-panel">
+      <div class="card toolbar">
+        <label>Forecast issued
+          <select id="ftime"></select>
+        </label>
+        <span class="muted" id="verify-note"></span>
+      </div>
+
+      <div class="columns" id="columns"></div>
+
+      <div class="grid-2">
+        <div class="card">
+          <h2>What the model saw <span class="muted" id="issue-src"></span></h2>
+          <div class="issue-img" id="issue-img"></div>
+        </div>
+        <div class="card">
+          <h2>Run log</h2>
+          <pre class="log" id="log-verify">Press “Run verification” to score the latest forecast.</pre>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
