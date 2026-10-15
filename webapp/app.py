@@ -12,6 +12,10 @@ Nothing here forecasts or scores anything. The app streams the scripts' output
 and reads what they write: forecast_latest_v3.json, datanow/, and
 verification_log_v3.csv. Target-hour satellite images for the verification
 view come from himawari_aws.extract_scan, the same NOAA crops the model sees.
+
+After a successful run the app republishes the public site: it runs
+export_static.py, commits site/ (and nothing else) and pushes main, which
+Vercel redeploys. Set PUBLISH=0 to turn this off.
 """
 import hmac
 import json
@@ -50,6 +54,8 @@ COMMANDS = {
                "--log", "verification_log_v3.csv", "--no-model-fallback"],
 }
 
+PUBLISH = os.environ.get("PUBLISH", "1") != "0"
+
 # Public deployments set ADMIN_TOKEN; without it the app runs in local mode
 # and anyone who can reach it may start jobs.
 ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN")
@@ -80,16 +86,53 @@ _job = None
 _job_lock = threading.Lock()
 
 
-def _run(job):
+def _stream(job, cmd):
+    """Run cmd in ROOT, appending its output to the job log; return exit code."""
     env = dict(os.environ, PYTHONUNBUFFERED="1")
+    proc = subprocess.Popen(cmd, cwd=ROOT, stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, text=True, env=env,
+                            bufsize=1)
+    for line in proc.stdout:
+        job.lines.append(line.rstrip("\n"))
+    return proc.wait()
+
+
+def _git(*args):
+    return subprocess.run(["git", *args], cwd=ROOT, capture_output=True,
+                          text=True)
+
+
+def publish(job):
+    """Export the static site, commit only site/, and push main to deploy it."""
+    say = lambda msg: job.lines.append(f"[publish] {msg}")
+    branch = _git("rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+    if branch != "main":
+        say(f"skipped: on branch {branch!r}, Vercel deploys main")
+        return
+    say("exporting static site...")
+    if _stream(job, [str(PY), "-u", str(HERE / "export_static.py")]) != 0:
+        say("export failed; site not updated")
+        return
+    _git("add", "--all", "site")
+    if _git("diff", "--cached", "--quiet", "--", "site").returncode == 0:
+        say("no changes to publish")
+        return
+    stamp = pd.Timestamp.now(tz="Asia/Singapore").strftime("%Y-%m-%d %H:%M")
+    # The pathspec limits the commit to site/, whatever else is staged.
+    r = _git("commit", "-m", f"site update {stamp} SGT ({job.kind})", "--", "site")
+    if r.returncode != 0:
+        say(f"commit failed: {(r.stderr or r.stdout).strip()}")
+        return
+    r = _git("push", "origin", "main")
+    if r.returncode != 0:
+        say(f"push failed (commit kept locally): {r.stderr.strip()}")
+        return
+    say("pushed; Vercel will redeploy in about a minute")
+
+
+def _run(job):
     try:
-        proc = subprocess.Popen([str(PY), "-u", *COMMANDS[job.kind]], cwd=ROOT,
-                                stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT, text=True, env=env,
-                                bufsize=1)
-        for line in proc.stdout:
-            job.lines.append(line.rstrip("\n"))
-        job.returncode = proc.wait()
+        job.returncode = _stream(job, [str(PY), "-u", *COMMANDS[job.kind]])
     except Exception as e:
         job.lines.append(f"[webapp] failed to start: {e}")
         job.returncode = -1
@@ -99,6 +142,11 @@ def _run(job):
             job.lines.append(f"[webapp] archived run -> webapp/runs/{run_id}/")
         except Exception as e:
             job.lines.append(f"[webapp] could not archive run: {e}")
+    if job.returncode == 0 and PUBLISH:
+        try:
+            publish(job)
+        except Exception as e:
+            job.lines.append(f"[publish] failed: {e}")
     job.state = "done" if job.returncode == 0 else "failed"
 
 
