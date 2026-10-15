@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Singapore Solar Nowcast</title>
+  <meta name="description" content="Live 1–3 hour sunlight (GHI) forecasts for Singapore from Himawari satellite imagery and weather data, scored against what actually happened." />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <h1>Singapore Solar Nowcast</h1>
+      <span class="sub" id="latest">v3 ensemble</span>
+    </div>
+    <div class="actions" hidden>
+      <button id="btn-predict" data-kind="predict">Run prediction</button>
+      <button id="btn-verify" data-kind="verify">Run verification</button>
+    </div>
+  </header>
+
+  <!-- Intro -->
+  <section class="hero" id="hero">
+    <div class="hero-text">
+      <h2>How much sunlight will reach Singapore in the next 3 hours?</h2>
+      <p>
+        This site forecasts <strong>solar irradiance</strong>, the sunlight reaching the ground, over Singapore
+        <strong>1, 2 and 3 hours ahead</strong>. It combines live <strong>Himawari satellite images</strong>
+        with the last 24 hours of weather.
+      </p>
+      <p class="muted-p">
+        Solar panel output follows sunlight almost exactly, and clear-sky sunlight is predictable astronomy.
+        So the hard part is <em>cloud</em>, and a satellite can see cloud upwind before it reaches the island.
+      </p>
+      <div class="chips">
+        <span class="chip"><b>Updates</b> daily, in daylight hours</span>
+        <span class="chip"><b>Horizons</b> +1h · +2h · +3h</span>
+        <span class="chip"><b>Model</b> 3-model deep-learning ensemble</span>
+      </div>
+    </div>
+    <div class="hero-side">
+      <a class="link" href="https://github.com/Qasim1507/Solar-Prediction" target="_blank" rel="noopener">Code &amp; full write-up on GitHub →</a>
+      <button class="ghost" id="hero-hide" aria-label="Hide introduction">Hide intro</button>
+    </div>
+  </section>
+  <button class="ghost hero-show" id="hero-show" hidden>What is this?</button>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="predict">Forecast</button>
+    <button class="tab" data-tab="verify">Verification</button>
+    <button class="tab" data-tab="about">How it works</button>
+    <span class="job" id="job-status">idle</span>
+  </nav>
+
+  <main>
+    <!-- Prediction -->
+    <section id="tab-predict" class="tab-panel active">
+      <div class="card">
+        <h2>Forecast <span class="muted" id="fc-time"></span></h2>
+        <p class="caption">The expected sunlight at each future hour, and the range it should fall inside 9 times out of 10.</p>
+        <div id="forecast" class="table-wrap"><span class="muted">No forecast yet.</span></div>
+        <div class="badges" id="diagnostics"></div>
+      </div>
+
+      <div class="card">
+        <h2>Satellite input frames <span class="muted">Himawari · NOAA tile T036</span></h2>
+        <p class="caption">The three latest Himawari scans over Singapore, taken 10 minutes apart. The model reads how the cloud is moving between them. Brighter areas are cloud.</p>
+        <div class="frames" id="frames"></div>
+      </div>
+
+      <div class="card">
+        <h2>Weather now <span class="muted" id="collected"></span></h2>
+        <p class="caption">The latest weather readings. The model also uses the 24 hours of history behind them.</p>
+        <div class="weather" id="weather"><span class="muted">No data yet.</span></div>
+      </div>
+
+      <details class="card log-card" data-log>
+        <summary><h2>Raw run log <span class="muted">technical</span></h2></summary>
+        <pre class="log" id="log-predict">The forecast is refreshed during daylight hours (09:00–14:00 SGT).</pre>
+      </details>
+    </section>
+
+    <!-- Verification -->
+    <section id="tab-verify" class="tab-panel">
+      <div class="card toolbar">
+        <label>Forecast issued
+          <select id="ftime"></select>
+        </label>
+        <span class="muted" id="verify-note"></span>
+      </div>
+      <p class="caption wide">Each column is one forecast hour. Once that hour has passed, the forecast is scored against the sunlight that was actually reported, and against a simple baseline that assumes the cloud stays as it is.</p>
+
+      <div class="columns" id="columns"></div>
+
+      <div class="card">
+        <h2>What the model saw <span class="muted" id="issue-src"></span></h2>
+        <p class="caption">The satellite view when the forecast was made. Compare it with the scans above each column to see how the clouds actually developed.</p>
+        <div class="issue-img" id="issue-img"></div>
+      </div>
+
+      <details class="card log-card" data-log>
+        <summary><h2>Raw run log <span class="muted">technical</span></h2></summary>
+        <pre class="log" id="log-verify">Forecasts are scored after their target hours have passed.</pre>
+      </details>
+    </section>
+
+    <!-- How it works -->
+    <section id="tab-about" class="tab-panel">
+      <div class="card">
+        <h2>From satellite to forecast</h2>
+        <ol class="flow">
+          <li><span class="step">1 · Inputs</span><b>Live weather (24 h)</b><b>3 satellite frames, 10 min apart</b></li>
+          <li><span class="step">2 · Model</span><b>Image encoder + weather sequence model, fused</b></li>
+          <li><span class="step">3 · Cloudiness</span><b>Clear-sky index k<sub>t</sub> × clear-sky sunlight</b></li>
+          <li><span class="step">4 · Output</span><b>Forecast + 90% range</b></li>
+        </ol>
+        <div class="explain">
+          <div>
+            <h3>1 · Inputs</h3>
+            <p>Every run downloads the last 24 hours of weather for Singapore: cloud cover, temperature, humidity, rain, wind and recent sunlight. It also fetches the three most recent Himawari-9 satellite scans, which arrive every 10 minutes from NOAA's public archive.</p>
+          </div>
+          <div>
+            <h3>2 · Model</h3>
+            <p>An image network pretrained on ImageNet turns each satellite frame into features, and a sequence model reads the weather history. A cross-attention layer lets the weather side "look at" the relevant parts of the images. Three copies trained with different random seeds each produce a forecast, and their outputs are combined, giving more weight to the more confident ones.</p>
+          </div>
+          <div>
+            <h3>3 · Cloudiness, not raw sunlight</h3>
+            <p>The model doesn't predict sunlight directly. It predicts the <b>clear-sky index</b> (k<sub>t</sub>): the fraction of a cloudless sky's sunlight that gets through. 1.0 means clear sky and 0.3 means heavy cloud. Clear-sky sunlight comes from solar geometry, so the model can spend all its effort on cloud.</p>
+          </div>
+          <div>
+            <h3>4 · Forecast with uncertainty</h3>
+            <p>Multiplying k<sub>t</sub> by clear-sky sunlight gives the forecast in W/m². Each forecast also comes with a <b>90% interval</b>: if the model is well calibrated, the real value should land inside that range about 9 times out of 10.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>How forecasts are checked</h2>
+        <p>Once a target hour has passed, the forecast is compared with the sunlight reported for that hour. It's also compared with <b>smart persistence</b>, a simple baseline that assumes the current cloudiness carries on unchanged. A forecast model is only useful if it beats that baseline.</p>
+        <p class="muted-p">Caveat: "actual" sunlight comes from the ERA5 reanalysis product, not a ground sensor. ERA5 is smoothed in space and time, so verification is a consistency check rather than independent ground truth. Training data covers 08:00–17:00 SGT only.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span>Data: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo / ERA5</a> · <a href="https://registry.opendata.aws/noaa-himawari/" target="_blank" rel="noopener">NOAA Himawari on AWS</a> · <a href="https://pvlib-python.readthedocs.io/" target="_blank" rel="noopener">pvlib</a></span>
+    <span>Experimental research project, not for operational use · <a href="https://github.com/Qasim1507/Solar-Prediction" target="_blank" rel="noopener">GitHub</a></span>
+  </footer>
+
+  <script>window.STATIC_SITE = true;</script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

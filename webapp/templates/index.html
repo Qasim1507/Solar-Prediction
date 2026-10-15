@@ -147,6 +147,7 @@
     <span>Experimental research project, not for operational use · <a href="https://github.com/Qasim1507/Solar-Prediction" target="_blank" rel="noopener">GitHub</a></span>
   </footer>
 
+  <script>window.STATIC_SITE = {{ 'true' if static_site else 'false' }};</script>
   <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>
