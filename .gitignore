@@ -24,3 +24,5 @@ dead_tiles.txt
 
 # Web app run archive
 webapp/runs/
+presentation/
+brag-output/
