@@ -16,6 +16,18 @@ let lastState = null;
 let frameMtimes = {};
 let verifyTimer = null;
 
+// The Vercel build (webapp/export_static.py) is a read-only snapshot: the API
+// responses are saved under /data, and there is no job runner to poll.
+const STATIC = window.STATIC_SITE === true;
+const runId = (t) => t.replace(/[-:]/g, "").replace(" ", "_");  // app.run_id_for
+const API = {
+  forecast: () => (STATIC ? "/data/forecast.json" : "/api/forecast"),
+  frames: () => (STATIC ? "/data/frames.json" : "/api/frames"),
+  verification: (t) => STATIC
+    ? `/data/verification/${t ? runId(t) : "latest"}.json`
+    : (t ? `/api/verification?forecast_time=${encodeURIComponent(t)}` : "/api/verification"),
+};
+
 // Explainer text for the ⓘ tooltips, kept in one place.
 const TIPS = {
   ghi: "Global Horizontal Irradiance: sunlight power reaching flat ground, in watts per square metre. ~1000 W/m² is bright midday sun.",
@@ -74,6 +86,13 @@ const authHeaders = () => (adminKey ? { "X-Admin-Token": adminKey } : {});
 
 async function loadConfig() {
   let admin = false;
+  if (STATIC) {
+    try {
+      const m = await (await fetch("/data/meta.json")).json();
+      $("job-status").textContent = `updated ${m.exported_sgt} SGT`;
+    } catch {}
+    return;
+  }
   try { admin = (await (await fetch("/api/config", { headers: authHeaders() })).json()).admin; } catch {}
   document.querySelector(".actions").hidden = !admin;
   document.querySelectorAll("[data-log]").forEach((d) => (d.open = admin));
@@ -152,11 +171,11 @@ async function poll() {
     lastState = j.state;
   }
 }
-setInterval(poll, 1000);
+if (!STATIC) setInterval(poll, 1000);
 
 // ── prediction view ─────────────────────────────────────────────────────────
 async function loadFrames(jobStarted) {
-  const frames = await (await fetch("/api/frames")).json();
+  const frames = await (await fetch(API.frames())).json();
   const box = $("frames");
   if (!box.children.length) {
     box.innerHTML = FRAME_ORDER.map((n) => `
@@ -172,7 +191,7 @@ async function loadFrames(jobStarted) {
     const fresh = jobStarted && f.mtime >= jobStarted;
     if (frameMtimes[f.name] !== f.mtime) {
       frameMtimes[f.name] = f.mtime;
-      slot.innerHTML = `<img src="/img/live/${f.name}?v=${f.mtime}" alt="${FRAME_LABELS[f.name]}">`;
+      slot.innerHTML = `<img src="${f.url}?v=${f.mtime}" alt="${FRAME_LABELS[f.name]}">`;
     }
     fig.classList.toggle("fresh", !!fresh);
     fig.classList.toggle("stale", !!jobStarted && !fresh);
@@ -182,7 +201,7 @@ async function loadFrames(jobStarted) {
 }
 
 async function loadForecast() {
-  const { forecast: fc, weather, collected } = await (await fetch("/api/forecast")).json();
+  const { forecast: fc, weather, collected } = await (await fetch(API.forecast())).json();
   if (weather) {
     const items = [
       ["Temperature", weather.avg_temperature_c, "°C"],
@@ -266,8 +285,7 @@ function column(c) {
 
 async function loadVerification(ftime) {
   clearTimeout(verifyTimer);
-  const url = ftime ? `/api/verification?forecast_time=${encodeURIComponent(ftime)}` : "/api/verification";
-  const r = await fetch(url);
+  const r = await fetch(API.verification(ftime));
   if (!r.ok) { $("columns").innerHTML = `<div class="card muted">No forecast to verify yet.</div>`; return; }
   const d = await r.json();
 
@@ -290,4 +308,4 @@ loadFrames(null);
 // /?forecast_time=2026-09-30%2010:00#verify opens a past day straight on the Verify tab
 loadVerification(new URLSearchParams(location.search).get("forecast_time"));
 if (["#verify", "#about"].includes(location.hash)) showTab(location.hash.slice(1));
-poll();
+if (!STATIC) poll();

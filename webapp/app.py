@@ -157,7 +157,7 @@ def frames():
     out = []
     for name in FRAMES:
         p = SAT_DIR / name
-        out.append({"name": name,
+        out.append({"name": name, "url": f"/img/live/{name}",
                     "mtime": p.stat().st_mtime if p.exists() else None})
     return jsonify(out)
 
@@ -350,7 +350,7 @@ def verification():
 
 @app.get("/")
 def index():
-    return render_template("index.html")
+    return render_template("index.html", static_site=False)
 
 
 if __name__ == "__main__":
