@@ -13,6 +13,7 @@ and reads what they write: forecast_latest_v3.json, datanow/, and
 verification_log_v3.csv. Target-hour satellite images for the verification
 view come from himawari_aws.extract_scan, the same NOAA crops the model sees.
 """
+import hmac
 import json
 import math
 import os
@@ -49,8 +50,19 @@ COMMANDS = {
                "--log", "verification_log_v3.csv", "--no-model-fallback"],
 }
 
+# Public deployments set ADMIN_TOKEN; without it the app runs in local mode
+# and anyone who can reach it may start jobs.
+ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN")
+
 sys.path.insert(0, str(ROOT))
 app = Flask(__name__)
+
+
+def is_admin():
+    if not ADMIN_TOKEN:
+        return True
+    given = request.headers.get("X-Admin-Token", "")
+    return hmac.compare_digest(given.encode(), ADMIN_TOKEN.encode())
 
 
 # ── job runner ────────────────────────────────────────────────────────────────
@@ -95,12 +107,19 @@ def start_job(kind):
     global _job
     if kind not in COMMANDS:
         abort(404)
+    if not is_admin():
+        return jsonify(error="runs are admin-only"), 403
     with _job_lock:
         if _job is not None and _job.state == "running":
             return jsonify(error=f"a {_job.kind} job is already running"), 409
         _job = Job(kind)
         threading.Thread(target=_run, args=(_job,), daemon=True).start()
     return jsonify(kind=kind, started=_job.started)
+
+
+@app.get("/api/config")
+def config():
+    return jsonify(admin=is_admin())
 
 
 @app.get("/api/job")
@@ -264,6 +283,8 @@ def verification():
         return jsonify(error="no forecast yet"), 404
 
     fc = _forecast_for(ftime)
+    if fc is not None:
+        times.add(ftime)  # archived runs that have no log rows yet
     rows = log[log["forecast_time"].astype(str) == ftime] if len(log) else log
     by_h = {r["horizon"]: r for _, r in rows.iterrows()}
     fc_by_h = {f["horizon"]: f for f in (fc or {}).get("forecasts", [])}
@@ -333,5 +354,5 @@ def index():
 
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=int(os.environ.get("PORT", 8050)),
+    app.run(host=os.environ.get("HOST", "127.0.0.1"), port=int(os.environ.get("PORT", 8050)),
             debug=False, threaded=True)
