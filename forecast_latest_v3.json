@@ -5,53 +5,53 @@
     1337,
     2024
   ],
-  "forecast_time_sgt": "2026-10-15 11:00",
+  "forecast_time_sgt": "2026-10-16 11:00",
   "forecasts": [
     {
       "horizon": "t+1h",
-      "time_sgt": "2026-10-15 12:00",
-      "ghi_forecast_wm2": 654.3,
-      "ghi_lower_90": 536.3,
-      "ghi_upper_90": 772.4,
-      "kt_forecast": 0.7358,
-      "kt_sigma": 0.0807,
-      "clearsky_hour_mean_wm2": 889.3,
+      "time_sgt": "2026-10-16 12:00",
+      "ghi_forecast_wm2": 799.6,
+      "ghi_lower_90": 738.3,
+      "ghi_upper_90": 860.8,
+      "kt_forecast": 0.899,
+      "kt_sigma": 0.0419,
+      "clearsky_hour_mean_wm2": 889.4,
       "kt_capped": false,
       "method": "v3_ensemble"
     },
     {
       "horizon": "t+2h",
-      "time_sgt": "2026-10-15 13:00",
-      "ghi_forecast_wm2": 686.4,
-      "ghi_lower_90": 544.6,
-      "ghi_upper_90": 828.2,
-      "kt_forecast": 0.7235,
-      "kt_sigma": 0.0908,
-      "clearsky_hour_mean_wm2": 948.7,
+      "time_sgt": "2026-10-16 13:00",
+      "ghi_forecast_wm2": 835.4,
+      "ghi_lower_90": 757.2,
+      "ghi_upper_90": 913.5,
+      "kt_forecast": 0.8807,
+      "kt_sigma": 0.0501,
+      "clearsky_hour_mean_wm2": 948.5,
       "kt_capped": false,
       "method": "v3_ensemble"
     },
     {
       "horizon": "t+3h",
-      "time_sgt": "2026-10-15 14:00",
-      "ghi_forecast_wm2": 662.6,
-      "ghi_lower_90": 506.8,
-      "ghi_upper_90": 818.4,
-      "kt_forecast": 0.7127,
-      "kt_sigma": 0.1019,
-      "clearsky_hour_mean_wm2": 929.7,
+      "time_sgt": "2026-10-16 14:00",
+      "ghi_forecast_wm2": 784.4,
+      "ghi_lower_90": 678.9,
+      "ghi_upper_90": 890.0,
+      "kt_forecast": 0.8442,
+      "kt_sigma": 0.069,
+      "clearsky_hour_mean_wm2": 929.2,
       "kt_capped": false,
       "method": "v3_ensemble"
     },
     {
       "horizon": "t+1h-sp",
-      "time_sgt": "2026-10-15 12:00",
-      "ghi_forecast_wm2": 744.5,
-      "ghi_lower_90": 556.6,
-      "ghi_upper_90": 932.5,
-      "kt_forecast": 0.8372,
-      "kt_sigma": 0.1285,
-      "clearsky_hour_mean_wm2": 889.3,
+      "time_sgt": "2026-10-16 12:00",
+      "ghi_forecast_wm2": 851.2,
+      "ghi_lower_90": 662.7,
+      "ghi_upper_90": 1022.8,
+      "kt_forecast": 0.9571,
+      "kt_sigma": 0.1288,
+      "clearsky_hour_mean_wm2": 889.4,
       "kt_capped": false,
       "method": "smart_persistence"
     }
@@ -59,7 +59,7 @@
   "diagnostics": {
     "image_ok": true,
     "outside_training_hours": false,
-    "lookback_ends": "2026-10-15 11:00:00",
+    "lookback_ends": "2026-10-16 11:00:00",
     "lookback_hours": [
       8,
       9,
@@ -74,6 +74,6 @@
     ],
     "lookback_fresh": true,
     "sp_t1_enabled": true,
-    "kt_issue": 0.8372
+    "kt_issue": 0.9571
   }
 }
