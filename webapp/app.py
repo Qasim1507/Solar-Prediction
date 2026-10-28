@@ -40,6 +40,7 @@ if not PY.exists():
 
 FORECAST = ROOT / "forecast_latest_v3.json"
 LOG = ROOT / "verification_log_v3.csv"
+BACKTEST_LOG = ROOT / "verification_log_backtest.csv"  # scripts/backtest.py
 SUMMARY = ROOT / "datanow" / "current" / "current_summary.json"
 SAT_DIR = ROOT / "datanow" / "satellite"
 AWS_CACHE = SAT_DIR / "aws_cache"
@@ -394,6 +395,51 @@ def verification():
                    times=sorted(times, reverse=True),
                    has_forecast_json=fc is not None,
                    issue_image=issue_img, columns=columns)
+
+
+# ── backtest view ─────────────────────────────────────────────────────────────
+
+def _scores(g):
+    """MAE for v3 and smart persistence, skill, bias and 90% coverage."""
+    g = g.dropna(subset=["sp_abs_error_wm2"])
+    if g.empty:
+        return None
+    mae, sp = g["abs_error_wm2"].mean(), g["sp_abs_error_wm2"].mean()
+    return {"n": int(len(g)),
+            "mae": round(float(mae), 1),
+            "sp_mae": round(float(sp), 1),
+            "skill": round(float(100 * (1 - mae / sp)), 1) if sp > 0 else None,
+            "bias": round(float((g["forecast_wm2"] - g["actual_wm2"]).mean()), 1),
+            "picp": round(float(100 * g["in_ci"].mean()), 0)}
+
+
+@app.get("/api/backtest")
+def backtest():
+    """Summary of verification_log_backtest.csv: v3 rows only, scored hours only."""
+    if not BACKTEST_LOG.exists():
+        return jsonify(error="no backtest yet"), 404
+    df = pd.read_csv(BACKTEST_LOG)
+    df = df[(df["source"] == "measured")
+            & (df.get("method", "v3_ensemble") == "v3_ensemble")].copy()
+    if df.empty:
+        return jsonify(error="no backtest yet"), 404
+    for c in ["forecast_wm2", "actual_wm2", "abs_error_wm2", "sp_abs_error_wm2"]:
+        df[c] = pd.to_numeric(df[c], errors="coerce")
+    df["in_ci"] = df["in_90ci"].astype(str).str.lower().eq("true")
+    df["issue"] = pd.to_datetime(df["forecast_time"])
+
+    by = lambda key, fmt: [dict(key=fmt(k), **s) for k, g in df.groupby(key)
+                           if (s := _scores(g))]
+    return jsonify(
+        start=df["issue"].min().strftime("%Y-%m-%d"),
+        end=df["issue"].max().strftime("%Y-%m-%d"),
+        forecasts=int(df["forecast_time"].nunique()),
+        days=int(df["issue"].dt.date.nunique()),
+        overall=_scores(df),
+        horizons=by("horizon", str),
+        months=by(df["issue"].dt.to_period("M"), lambda p: p.strftime("%B %Y")),
+        hours=by(df["issue"].dt.hour, lambda h: f"{h:02d}:00"),
+        daily=by(df["issue"].dt.date, str))
 
 
 @app.get("/")

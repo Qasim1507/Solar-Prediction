@@ -48,6 +48,7 @@
   <nav class="tabs">
     <button class="tab active" data-tab="predict">Forecast</button>
     <button class="tab" data-tab="verify">Verification</button>
+    <button class="tab" data-tab="backtest">Backtest</button>
     <button class="tab" data-tab="about">How it works</button>
     <span class="job" id="job-status">idle</span>
   </nav>
@@ -102,6 +103,36 @@
         <summary><h2>Raw run log <span class="muted">technical</span></h2></summary>
         <pre class="log" id="log-verify">Forecasts are scored after their target hours have passed.</pre>
       </details>
+    </section>
+
+    <!-- Backtest -->
+    <section id="tab-backtest" class="tab-panel">
+      <div class="card">
+        <h2>Backtest <span class="muted" id="bt-period"></span></h2>
+        <p class="caption">The same model replayed over past days it never saw in training. Every hour from 08:00 to 14:00 SGT, it forecast the next 3 hours using only the weather and satellite images available at that moment, and each forecast was then scored against what happened.</p>
+        <div class="weather" id="bt-headline"><span class="muted">No backtest yet.</span></div>
+      </div>
+
+      <div class="card">
+        <h2>Daily error <span class="muted">mean absolute error, W/m², all horizons · lower is better</span></h2>
+        <div class="legend" id="bt-legend"></div>
+        <div class="chart" id="bt-chart"></div>
+      </div>
+
+      <div class="card">
+        <h2>By horizon</h2>
+        <div class="table-wrap" id="bt-horizons"></div>
+      </div>
+
+      <div class="card">
+        <h2>By month</h2>
+        <div class="table-wrap" id="bt-months"></div>
+      </div>
+
+      <div class="card">
+        <h2>By issue hour <span class="muted">is the model better at some times of day?</span></h2>
+        <div class="table-wrap" id="bt-hours"></div>
+      </div>
     </section>
 
     <!-- How it works -->

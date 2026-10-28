@@ -23,6 +23,7 @@ const runId = (t) => t.replace(/[-:]/g, "").replace(" ", "_");  // app.run_id_fo
 const API = {
   forecast: () => (STATIC ? "/data/forecast.json" : "/api/forecast"),
   frames: () => (STATIC ? "/data/frames.json" : "/api/frames"),
+  backtest: () => (STATIC ? "/data/backtest.json" : "/api/backtest"),
   verification: (t) => STATIC
     ? `/data/verification/${t ? runId(t) : "latest"}.json`
     : (t ? `/api/verification?forecast_time=${encodeURIComponent(t)}` : "/api/verification"),
@@ -39,6 +40,7 @@ const TIPS = {
   challenger: "Published alongside the model so the two can be compared fairly on the same hours.",
   abs_error: "How far the forecast was from the reported value, in W/m². Lower is better.",
   in_ci: "Whether the reported value fell inside the forecast's 90% range.",
+  skill: "How much smaller the model's error is than the persistence baseline's. Positive means the model is better.",
   actual: "Sunlight reported for that hour by the ERA5 reanalysis (smoothed; not a ground sensor).",
   image_ok: "The latest satellite frame downloaded and looks valid (not blank or corrupted).",
   lookback: "Whether the 24 h weather history runs right up to the forecast time. Stale data makes the forecast less reliable.",
@@ -301,11 +303,125 @@ async function loadVerification(ftime) {
 }
 $("ftime").addEventListener("change", (e) => loadVerification(e.target.value));
 
+// ── backtest ────────────────────────────────────────────────────────────────
+const SERIES = [
+  { key: "mae", name: "v3 model", color: "var(--s-model)" },
+  { key: "sp_mae", name: "Smart persistence", color: "var(--s-sp)" },
+];
+
+function scoreTable(rows, label) {
+  if (!rows || !rows.length) return `<span class="muted">No data.</span>`;
+  const head = `<tr><th>${label}</th><th>n</th><th>Model MAE ${tip("abs_error")}</th>
+    <th>Persistence MAE ${tip("sp")}</th><th>Skill ${tip("skill")}</th>
+    <th>Bias</th><th>In 90% range ${tip("ci")}</th></tr>`;
+  const body = rows.map((r) => `<tr><td>${esc(r.key)}</td><td class="num">${r.n}</td>
+    <td class="num ghi">${fmt(r.mae)}</td><td class="num">${fmt(r.sp_mae)}</td>
+    <td class="num ${r.skill > 0 ? "good" : "worse"}">${r.skill > 0 ? "+" : ""}${fmt(r.skill)}%</td>
+    <td class="num">${r.bias > 0 ? "+" : ""}${fmt(r.bias)}</td><td class="num">${fmt(r.picp, 0)}%</td></tr>`).join("");
+  return `<table>${head}${body}</table>`;
+}
+
+function dailyChart(el, rows) {
+  const W = Math.max(320, el.clientWidth), H = 260;
+  const m = { t: 12, r: W < 600 ? 12 : 120, b: 26, l: 40 };
+  const iw = W - m.l - m.r, ih = H - m.t - m.b;
+  const max = Math.max(...rows.flatMap((r) => SERIES.map((s) => r[s.key])));
+  const step = max > 300 ? 100 : 50;
+  const top = Math.ceil(max / step) * step;
+  const x = (i) => m.l + (rows.length < 2 ? iw / 2 : (i / (rows.length - 1)) * iw);
+  const y = (v) => m.t + ih - (v / top) * ih;
+
+  const ticks = [];
+  for (let v = 0; v <= top; v += step) ticks.push(v);
+  const grid = ticks.map((v) => `<line x1="${m.l}" x2="${m.l + iw}" y1="${y(v)}" y2="${y(v)}"/>`).join("");
+  const yl = ticks.map((v) => `<text x="${m.l - 6}" y="${y(v) + 4}" text-anchor="end">${v}</text>`).join("");
+  // x labels: the 1st of each month
+  const xl = rows.map((r, i) => (r.key.endsWith("-01") || i === 0)
+    ? `<text x="${x(i)}" y="${H - 6}" text-anchor="start">${new Date(r.key + "T00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</text>` : "").join("");
+
+  const lines = SERIES.map((s) => `<path class="series" stroke="${s.color}" d="${rows.map((r, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(r[s.key]).toFixed(1)}`).join("")}"/>`).join("");
+  // direct labels at the right end, nudged apart if they collide
+  const last = rows.length - 1;
+  const ends = SERIES.map((s) => ({ s, y: y(rows[last][s.key]) })).sort((a, b) => a.y - b.y);
+  if (ends.length === 2 && ends[1].y - ends[0].y < 14) { const mid = (ends[0].y + ends[1].y) / 2; ends[0].y = mid - 7; ends[1].y = mid + 7; }
+  const labels = m.r < 100 ? "" : ends.map((e) => `<text class="label" x="${x(last) + 8}" y="${e.y + 4}">${esc(e.s.name)}</text>`).join("");
+
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Daily mean absolute error, v3 model vs smart persistence">
+    <g class="grid">${grid}</g><g class="axis">${yl}${xl}</g>${lines}${labels}
+    <line class="hair" y1="${m.t}" y2="${m.t + ih}" visibility="hidden"/>
+    ${SERIES.map((s) => `<circle class="dot" r="4" fill="${s.color}" visibility="hidden"/>`).join("")}
+    <rect x="${m.l}" y="${m.t}" width="${iw}" height="${ih}" fill="transparent" tabindex="0"/></svg>
+    <div class="chart-tip" hidden></div>`;
+
+  const svg = el.querySelector("svg"), hit = svg.querySelector("rect"), hair = svg.querySelector(".hair");
+  const dots = svg.querySelectorAll(".dot"), tipEl = el.querySelector(".chart-tip");
+  let cur = last;
+  const show = (i) => {
+    cur = Math.max(0, Math.min(last, i));
+    const r = rows[cur], px = x(cur);
+    hair.setAttribute("x1", px); hair.setAttribute("x2", px); hair.setAttribute("visibility", "visible");
+    SERIES.forEach((s, k) => { dots[k].setAttribute("cx", px); dots[k].setAttribute("cy", y(r[s.key])); dots[k].setAttribute("visibility", "visible"); });
+    tipEl.replaceChildren();
+    const d = document.createElement("div"); d.className = "d";
+    d.textContent = `${r.key} · ${r.n} forecast hours`; tipEl.append(d);
+    SERIES.forEach((s) => {
+      const row = document.createElement("div"); row.className = "r";
+      const key = document.createElement("i"); key.style.background = s.color;
+      const v = document.createElement("b"); v.textContent = fmt(r[s.key]);
+      const n = document.createElement("span"); n.textContent = s.name;
+      row.append(key, v, n); tipEl.append(row);
+    });
+    tipEl.hidden = false;
+    const scale = svg.getBoundingClientRect().width / W;
+    const left = px * scale + 12;
+    tipEl.style.left = `${left + tipEl.offsetWidth > el.clientWidth ? px * scale - tipEl.offsetWidth - 12 : left}px`;
+    tipEl.style.top = `${m.t * scale}px`;
+  };
+  const hide = () => { tipEl.hidden = true; hair.setAttribute("visibility", "hidden"); dots.forEach((c) => c.setAttribute("visibility", "hidden")); };
+  hit.addEventListener("pointermove", (e) => {
+    const b = svg.getBoundingClientRect();
+    const sx = ((e.clientX - b.left) / b.width) * W;
+    show(Math.round(((sx - m.l) / iw) * last));
+  });
+  hit.addEventListener("pointerleave", hide);
+  hit.addEventListener("focus", () => show(cur));
+  hit.addEventListener("blur", hide);
+  hit.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowLeft") { show(cur - 1); e.preventDefault(); }
+    if (e.key === "ArrowRight") { show(cur + 1); e.preventDefault(); }
+  });
+}
+
+async function loadBacktest() {
+  const r = await fetch(API.backtest());
+  if (!r.ok) { $("tab-backtest").querySelectorAll(".card").forEach((c, i) => { if (i) c.hidden = true; }); return; }
+  const d = await r.json();
+  const o = d.overall;
+  $("bt-period").textContent = `${d.start} → ${d.end} · ${d.forecasts} forecasts over ${d.days} days`;
+  $("bt-headline").innerHTML = [
+    ["Model error (MAE)", `${fmt(o.mae)} W/m²`],
+    ["Persistence error (MAE)", `${fmt(o.sp_mae)} W/m²`],
+    ["Skill vs persistence", `${o.skill > 0 ? "+" : ""}${fmt(o.skill)}%`],
+    ["Inside 90% range", `${fmt(o.picp, 0)}%`],
+  ].map(([k, v]) => `<div class="stat"><span class="k">${k}</span><span class="v">${v}</span></div>`).join("");
+  $("bt-legend").innerHTML = SERIES.map((s) => `<span><i style="background:${s.color}"></i>${esc(s.name)}</span>`).join("");
+  // Drawn at the real pixel width so text stays 11px; redrawn on resize.
+  // The tab may be hidden at load (width 0), so draw when it is first shown too.
+  const draw = () => { if ($("bt-chart").clientWidth) dailyChart($("bt-chart"), d.daily); };
+  draw();
+  let rz; addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(draw, 150); });
+  document.querySelector('.tab[data-tab="backtest"]').addEventListener("click", () => requestAnimationFrame(draw));
+  $("bt-horizons").innerHTML = scoreTable(d.horizons, "Horizon");
+  $("bt-months").innerHTML = scoreTable(d.months, "Month");
+  $("bt-hours").innerHTML = scoreTable(d.hours, "Issued at");
+}
+
 // ── initial load ────────────────────────────────────────────────────────────
 loadConfig();
 loadForecast();
 loadFrames(null);
+loadBacktest();
 // /?forecast_time=2026-09-30%2010:00#verify opens a past day straight on the Verify tab
 loadVerification(new URLSearchParams(location.search).get("forecast_time"));
-if (["#verify", "#about"].includes(location.hash)) showTab(location.hash.slice(1));
+if (["#verify", "#backtest", "#about"].includes(location.hash)) showTab(location.hash.slice(1));
 if (!STATIC) poll();
