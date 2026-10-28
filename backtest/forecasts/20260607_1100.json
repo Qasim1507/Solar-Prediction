@@ -1,0 +1,85 @@
+{
+  "model": "v3 ensemble (WinnerModel, k_t target)",
+  "seeds": [
+    42,
+    1337,
+    2024
+  ],
+  "forecast_time_sgt": "2026-06-07 11:00",
+  "backtest": true,
+  "forecasts": [
+    {
+      "horizon": "t+1h",
+      "time_sgt": "2026-06-07 12:00",
+      "ghi_forecast_wm2": 659.1,
+      "ghi_lower_90": 577.6,
+      "ghi_upper_90": 740.7,
+      "kt_forecast": 0.831,
+      "kt_sigma": 0.0625,
+      "clearsky_hour_mean_wm2": 793.1,
+      "kt_capped": false,
+      "method": "v3_ensemble"
+    },
+    {
+      "horizon": "t+2h",
+      "time_sgt": "2026-06-07 13:00",
+      "ghi_forecast_wm2": 697.9,
+      "ghi_lower_90": 594.3,
+      "ghi_upper_90": 801.6,
+      "kt_forecast": 0.8102,
+      "kt_sigma": 0.0731,
+      "clearsky_hour_mean_wm2": 861.4,
+      "kt_capped": false,
+      "method": "v3_ensemble"
+    },
+    {
+      "horizon": "t+3h",
+      "time_sgt": "2026-06-07 14:00",
+      "ghi_forecast_wm2": 672.6,
+      "ghi_lower_90": 546.8,
+      "ghi_upper_90": 798.3,
+      "kt_forecast": 0.7823,
+      "kt_sigma": 0.0889,
+      "clearsky_hour_mean_wm2": 859.7,
+      "kt_capped": false,
+      "method": "v3_ensemble"
+    },
+    {
+      "horizon": "t+1h-sp",
+      "time_sgt": "2026-06-07 12:00",
+      "ghi_forecast_wm2": 668.1,
+      "ghi_lower_90": 495.7,
+      "ghi_upper_90": 840.5,
+      "kt_forecast": 0.8424,
+      "kt_sigma": 0.1322,
+      "clearsky_hour_mean_wm2": 793.1,
+      "kt_capped": false,
+      "method": "smart_persistence"
+    }
+  ],
+  "diagnostics": {
+    "image_ok": true,
+    "outside_training_hours": false,
+    "lookback_ends": "2026-06-07 11:00:00",
+    "lookback_hours": [
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17
+    ],
+    "lookback_fresh": true,
+    "sp_t1_enabled": true,
+    "kt_issue": 0.8424,
+    "satellite_frames": [
+      "data/satellite_aws/2026/06/himawari_sg_20260607_030000.png",
+      "data/satellite_aws/2026/06/himawari_sg_20260607_025000.png",
+      "data/satellite_aws/2026/06/himawari_sg_20260607_023000.png"
+    ]
+  }
+}
