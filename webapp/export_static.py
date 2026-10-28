@@ -11,7 +11,10 @@ app shows, and writes:
     site/data/forecast.json, frames.json   /api/forecast, /api/frames
     site/data/verification/<run_id>.json   /api/verification per issue time
     site/data/verification/latest.json     ... for the latest forecast
-    site/data/backtest.json                /api/backtest (Jun-Aug replay summary)
+    site/data/backtest.json                /api/backtest (test-split replay summary)
+    site/data/backtest/days/<date>.json    /api/backtest/day, one per day
+    site/data/backtest/runs/<run_id>.json  /api/backtest/run, one per forecast
+    site/img/archive/...                   their archived scans, shrunk to 256 px
     site/data/meta.json                    export time
     site/img/...                           satellite images, re-encoded as JPEG
 
@@ -42,16 +45,24 @@ def write_json(rel, obj):
     dest.write_text(json.dumps(obj, separators=(",", ":")))
 
 
-def save_image(client, url):
-    """Fetch an app image URL, save it as JPEG under site/, return its new URL."""
+def save_image(client, url, size=None):
+    """
+    Fetch an app image URL, save it as JPEG under site/, return its new URL.
+    size shrinks it to size x size px. An image already saved this export is
+    reused, since backtest days share most of their scans.
+    """
     rel = re.sub(r"\.png$", "", url.split("?")[0].lstrip("/")) + ".jpg"
+    dest = OUT / rel
+    if dest.exists():
+        return "/" + rel
     r = client.get(url)
     if r.status_code != 200:
         return None
-    dest = OUT / rel
     dest.parent.mkdir(parents=True, exist_ok=True)
-    Image.open(io.BytesIO(r.data)).convert("RGB").save(
-        dest, "JPEG", quality=82, optimize=True)
+    im = Image.open(io.BytesIO(r.data)).convert("RGB")
+    if size:
+        im = im.resize((size, size), Image.LANCZOS)
+    im.save(dest, "JPEG", quality=82, optimize=True)
     return "/" + rel
 
 
@@ -75,6 +86,36 @@ def export_verification(client, ftime):
         elif img.get("status") == "fetching":
             img["status"] = "missing"
     return d
+
+
+BT_SIZE = 256  # px; ~16 KB per scan, ~3,500 scans for the whole test split
+
+
+def _shrink(client, img):
+    if img.get("status") == "ready":
+        img["url"] = save_image(client, img["url"], BT_SIZE)
+        if img["url"] is None:
+            img["status"] = "missing"
+
+
+def export_backtest_runs(client):
+    """Every backtest day and forecast as JSON, with its scans at BT_SIZE px."""
+    times = client.get("/api/backtest/runs").get_json()["times"]
+    write_json("data/backtest/runs.json", {"times": times})
+    days = sorted({t[:10] for t in times})
+    for i, day in enumerate(days, 1):
+        print(f"backtest day {i}/{len(days)}: {day}", end="\r")
+        d = client.get(f"/api/backtest/day?date={day}").get_json()
+        for h in d["hours"]:
+            _shrink(client, h["image"])
+        write_json(f"data/backtest/days/{day}.json", d)
+    print()
+    for t in times:
+        d = client.get(f"/api/backtest/run?forecast_time={quote(t)}").get_json()
+        for img in [*d["inputs"], *(c["image"] for c in d["columns"])]:
+            _shrink(client, img)
+        write_json(f"data/backtest/runs/{run_id_for(t)}.json", d)
+    print(f"backtest: {len(days)} days, {len(times)} forecasts")
 
 
 def main():
@@ -109,6 +150,7 @@ def main():
     bt = client.get("/api/backtest")
     if bt.status_code == 200:
         write_json("data/backtest.json", bt.get_json())
+        export_backtest_runs(client)
 
     now = pd.Timestamp.now(tz="Asia/Singapore").strftime("%Y-%m-%d %H:%M")
     write_json("data/meta.json", {"exported_sgt": now})

@@ -178,5 +178,27 @@ td.ci { white-space: nowrap; }
 .chart-tip .r b { font-family: var(--mono); font-weight: 600; min-width: 42px; }
 .chart-tip .r i { width: 12px; height: 2px; display: inline-block; }
 .chart-tip .r span { color: var(--muted); }
+.chart rect[tabindex] { cursor: pointer; }
+.chart-hint { margin: 8px 0 0; }
+.stepper { display: flex; gap: 6px; }
+.stepper button:disabled { opacity: 0.4; cursor: not-allowed; }
+.strip { display: grid; grid-template-columns: repeat(10, minmax(92px, 1fr)); gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+.strip figure { display: flex; flex-direction: column; gap: 4px; }
+.strip .img-slot { border-width: 2px; }
+.strip .t { font-family: var(--mono); font-size: 12px; display: flex; justify-content: space-between; gap: 4px; }
+.strip .a { font-family: var(--mono); font-size: 13px; }
+.strip .role { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); min-height: 13px; }
+.strip figure.issue .img-slot { border-color: var(--cyan); }
+.strip figure.target .img-slot { border-color: var(--amber); }
+.strip figure.issue .role { color: var(--cyan); }
+.strip figure.target .role { color: var(--amber); }
+.day-table td, .day-table th { white-space: nowrap; }
+.day-table tbody tr { cursor: pointer; }
+.day-table tbody tr:hover td { background: rgba(255, 255, 255, 0.03); }
+.day-table tbody tr.sel td { background: rgba(255, 182, 39, 0.08); }
+.day-table tbody tr.sel td:first-child { box-shadow: inset 3px 0 0 var(--amber); }
+.day-table .e { display: block; color: var(--muted); font-size: 11px; }
+.day-table .ok { color: var(--ok); }
+.day-table .bad { color: var(--bad); }
 td.good { color: var(--ok); }
 td.worse { color: var(--bad); }
