@@ -117,7 +117,39 @@
         <h2>Daily error <span class="muted">mean absolute error, W/m², all horizons · lower is better</span></h2>
         <div class="legend" id="bt-legend"></div>
         <div class="chart" id="bt-chart"></div>
+        <p class="caption chart-hint">Click a day to open its forecasts below.</p>
       </div>
+
+      <div class="card toolbar" id="bt-run-bar">
+        <label>Day <select id="bt-day"></select></label>
+        <span class="stepper">
+          <button class="ghost" id="bt-prev" aria-label="Previous day">← prev day</button>
+          <button class="ghost" id="bt-next" aria-label="Next day">next day →</button>
+        </span>
+        <span class="muted" id="bt-day-note"></span>
+      </div>
+
+      <div class="card">
+        <h2>The day hour by hour <span class="muted">satellite scan and actual sunlight at each hour, SGT</span></h2>
+        <div class="strip" id="bt-strip"></div>
+      </div>
+
+      <div class="card">
+        <h2>Forecasts issued this day <span class="muted">forecast / actual in W/m² · click a row to open it below</span></h2>
+        <div class="table-wrap" id="bt-day-table"></div>
+      </div>
+
+      <div class="card toolbar">
+        <label>Open forecast issued at <select id="bt-hour"></select></label>
+        <span class="muted" id="bt-run-note"></span>
+      </div>
+
+      <div class="card">
+        <h2>What the model saw <span class="muted" id="bt-issue"></span></h2>
+        <div class="frames" id="bt-inputs"></div>
+      </div>
+
+      <div class="columns" id="bt-columns"></div>
 
       <div class="card">
         <h2>By horizon</h2>

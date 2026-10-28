@@ -41,6 +41,9 @@ if not PY.exists():
 FORECAST = ROOT / "forecast_latest_v3.json"
 LOG = ROOT / "verification_log_v3.csv"
 BACKTEST_LOG = ROOT / "verification_log_backtest.csv"  # scripts/backtest.py
+BACKTEST_FC = ROOT / "backtest" / "forecasts"           # one JSON per issue time
+ARCHIVE = ROOT / "data" / "satellite_aws"               # the scans the model trained on
+CSV = ROOT / "data" / "combined_dataset_v2.csv"
 SUMMARY = ROOT / "datanow" / "current" / "current_summary.json"
 SAT_DIR = ROOT / "datanow" / "satellite"
 AWS_CACHE = SAT_DIR / "aws_cache"
@@ -319,25 +322,10 @@ def _forecast_for(ftime):
     return json.loads(p.read_text()) if p.exists() else None
 
 
-@app.get("/api/verification")
-def verification():
-    log = _read_log()
-    latest = (json.loads(FORECAST.read_text())["forecast_time_sgt"]
-              if FORECAST.exists() else None)
-    times = set(log["forecast_time"].astype(str)) if len(log) else set()
-    if latest:
-        times.add(latest)
-    ftime = request.args.get("forecast_time") or latest
-    if not ftime:
-        return jsonify(error="no forecast yet"), 404
-
-    fc = _forecast_for(ftime)
-    if fc is not None:
-        times.add(ftime)  # archived runs that have no log rows yet
-    rows = log[log["forecast_time"].astype(str) == ftime] if len(log) else log
+def _columns(ftime, fc, rows, image_for, now):
+    """One column per horizon: forecast, log row and target-hour image."""
     by_h = {r["horizon"]: r for _, r in rows.iterrows()}
     fc_by_h = {f["horizon"]: f for f in (fc or {}).get("forecasts", [])}
-    now = pd.Timestamp.now(tz="Asia/Singapore").tz_localize(None)
 
     def entry(h):
         f, r = fc_by_h.get(h), by_h.get(h)
@@ -377,9 +365,29 @@ def verification():
             status = "unverified"
         col = {"horizon": h, "target_time": target, "status": status,
                "v3": entry(h), "challenger": entry(f"{h}-sp")}
-        col["image"] = (scan_image(t) if t <= now
-                        else {"status": "pending"})
+        col["image"] = image_for(t) if t <= now else {"status": "pending"}
         columns.append(col)
+    return columns
+
+
+@app.get("/api/verification")
+def verification():
+    log = _read_log()
+    latest = (json.loads(FORECAST.read_text())["forecast_time_sgt"]
+              if FORECAST.exists() else None)
+    times = set(log["forecast_time"].astype(str)) if len(log) else set()
+    if latest:
+        times.add(latest)
+    ftime = request.args.get("forecast_time") or latest
+    if not ftime:
+        return jsonify(error="no forecast yet"), 404
+
+    fc = _forecast_for(ftime)
+    if fc is not None:
+        times.add(ftime)  # archived runs that have no log rows yet
+    rows = log[log["forecast_time"].astype(str) == ftime] if len(log) else log
+    now = pd.Timestamp.now(tz="Asia/Singapore").tz_localize(None)
+    columns = _columns(ftime, fc, rows, scan_image, now)
 
     # What the model saw: the archived t frame if this run was archived,
     # else the NOAA scan at the issue time.
@@ -440,6 +448,123 @@ def backtest():
         months=by(df["issue"].dt.to_period("M"), lambda p: p.strftime("%B %Y")),
         hours=by(df["issue"].dt.hour, lambda h: f"{h:02d}:00"),
         daily=by(df["issue"].dt.date, str))
+
+
+_csv_rows = None
+
+
+def csv_row(t_sgt):
+    """The CSV row at an SGT hour (scan path, GHI, clear-sky), or {}."""
+    global _csv_rows
+    if _csv_rows is None:
+        df = pd.read_csv(CSV, usecols=["timestamp", "image_path", "ghi", "ghi_clearsky"])
+        df["timestamp"] = pd.to_datetime(df["timestamp"])
+        _csv_rows = df.set_index("timestamp").to_dict("index")
+    return _csv_rows.get(pd.Timestamp(t_sgt), {})
+
+
+def archive_image(t_sgt):
+    """Image record for the archived scan the CSV row at t_sgt points at."""
+    return archive_file_image(csv_row(t_sgt).get("image_path"))
+
+
+def archive_file_image(rel):
+    """Image record for a data/satellite_aws/... path; the scan time is in its name."""
+    if not isinstance(rel, str) or not (ROOT / rel).exists():
+        return {"status": "missing"}
+    stamp = Path(rel).stem.rsplit("_", 2)[-2:]          # himawari_sg_YYYYmmdd_HHMMSS
+    utc = pd.Timestamp(" ".join(stamp)).strftime("%Y-%m-%d %H:%M")
+    return {"status": "ready", "scan_utc": utc,
+            "url": "/img/archive/" + str(Path(rel).relative_to("data/satellite_aws"))}
+
+
+@app.get("/img/archive/<path:rel>")
+def archive_file(rel):
+    p = (ARCHIVE / rel).resolve()
+    if not p.is_relative_to(ARCHIVE.resolve()) or p.suffix != ".png" or not p.exists():
+        abort(404)
+    return send_file(p, max_age=86400)
+
+
+@app.get("/api/backtest/runs")
+def backtest_runs():
+    """Every backtested issue time, newest first."""
+    times = sorted((pd.Timestamp(p.stem.replace("_", " ")).strftime("%Y-%m-%d %H:%M")
+                    for p in BACKTEST_FC.glob("*.json")), reverse=True)
+    return jsonify(times=times)
+
+
+@app.get("/api/backtest/run")
+def backtest_run():
+    """One backtest forecast: its numbers, its log rows, its input and target scans."""
+    ftime = request.args.get("forecast_time", "")
+    try:
+        p = BACKTEST_FC / f"{run_id_for(ftime)}.json"
+    except ValueError:
+        abort(400)
+    if not p.exists():
+        return jsonify(error=f"no backtest forecast for {ftime}"), 404
+    fc = json.loads(p.read_text())
+    log = pd.read_csv(BACKTEST_LOG) if BACKTEST_LOG.exists() else pd.DataFrame()
+    rows = log[log["forecast_time"].astype(str) == ftime] if len(log) else log
+    # Target hours are in the past by construction, so "now" is irrelevant here.
+    columns = _columns(ftime, fc, rows, archive_image, pd.Timestamp.max)
+    frames = (fc.get("diagnostics", {}).get("satellite_frames") or [None] * 3)
+    inputs = [dict(label=lbl, **archive_file_image(f))
+              for lbl, f in zip(["t (issue)", "t − 10 min", "t − 20 min"], frames)][::-1]
+    return jsonify(forecast_time=ftime, diagnostics=fc.get("diagnostics", {}),
+                   inputs=inputs, columns=columns)
+
+
+@app.get("/api/backtest/day")
+def backtest_day():
+    """
+    One backtest day: the scan and actual GHI at every daylight hour, and every
+    forecast issued that day with its three horizons scored.
+    """
+    try:
+        day = pd.Timestamp(request.args.get("date", "")).normalize()
+    except ValueError:
+        abort(400)
+    log = pd.read_csv(BACKTEST_LOG) if BACKTEST_LOG.exists() else pd.DataFrame()
+    if log.empty:
+        return jsonify(error="no backtest yet"), 404
+    log = log[pd.to_datetime(log["forecast_time"]).dt.normalize() == day]
+    if log.empty:
+        return jsonify(error=f"no backtest forecasts on {day:%Y-%m-%d}"), 404
+
+    hours = []
+    for h in range(8, 18):
+        t = day + pd.Timedelta(hours=h)
+        row = csv_row(t)
+        hours.append({"time": t.strftime("%H:%M"),
+                      "actual": _clean(row.get("ghi")),
+                      "clearsky": _clean(round(row["ghi_clearsky"], 1)) if row else None,
+                      "image": archive_image(t)})
+
+    runs = []
+    for ftime, g in log.groupby("forecast_time"):
+        fc_path = BACKTEST_FC / f"{run_id_for(ftime)}.json"
+        fc = json.loads(fc_path.read_text()) if fc_path.exists() else {}
+        cis = {f["horizon"]: f for f in fc.get("forecasts", [])}
+        hz = {}
+        for _, r in g.iterrows():
+            f = cis.get(r["horizon"], {})
+            hz[r["horizon"]] = {"target": str(r["target_time"])[11:16],
+                                "forecast": _clean(r["forecast_wm2"]),
+                                "actual": _clean(r["actual_wm2"]),
+                                "abs_error": _clean(r["abs_error_wm2"]),
+                                "in_ci": str(r["in_90ci"]).lower() == "true",
+                                "lower": f.get("ghi_lower_90"),
+                                "upper": f.get("ghi_upper_90"),
+                                "sp_abs_error": _clean(r["sp_abs_error_wm2"])}
+        v3 = [hz[h]["abs_error"] for h in HORIZONS if h in hz]
+        sp = [hz[h]["sp_abs_error"] for h in HORIZONS if h in hz
+              and hz[h]["sp_abs_error"] is not None]
+        runs.append({"forecast_time": ftime, "horizons": hz,
+                     "mae": round(sum(v3) / len(v3), 1) if v3 else None,
+                     "sp_mae": round(sum(sp) / len(sp), 1) if sp else None})
+    return jsonify(date=f"{day:%Y-%m-%d}", hours=hours, runs=runs)
 
 
 @app.get("/")

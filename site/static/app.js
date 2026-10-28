@@ -24,6 +24,10 @@ const API = {
   forecast: () => (STATIC ? "/data/forecast.json" : "/api/forecast"),
   frames: () => (STATIC ? "/data/frames.json" : "/api/frames"),
   backtest: () => (STATIC ? "/data/backtest.json" : "/api/backtest"),
+  btRuns: () => (STATIC ? "/data/backtest/runs.json" : "/api/backtest/runs"),
+  btDay: (d) => (STATIC ? `/data/backtest/days/${d}.json` : `/api/backtest/day?date=${d}`),
+  btRun: (t) => (STATIC ? `/data/backtest/runs/${runId(t)}.json`
+    : `/api/backtest/run?forecast_time=${encodeURIComponent(t)}`),
   verification: (t) => STATIC
     ? `/data/verification/${t ? runId(t) : "latest"}.json`
     : (t ? `/api/verification?forecast_time=${encodeURIComponent(t)}` : "/api/verification"),
@@ -321,7 +325,7 @@ function scoreTable(rows, label) {
   return `<table>${head}${body}</table>`;
 }
 
-function dailyChart(el, rows) {
+function dailyChart(el, rows, onPick) {
   const W = Math.max(320, el.clientWidth), H = 260;
   const m = { t: 12, r: W < 600 ? 12 : 120, b: 26, l: 40 };
   const iw = W - m.l - m.r, ih = H - m.t - m.b;
@@ -384,11 +388,13 @@ function dailyChart(el, rows) {
     show(Math.round(((sx - m.l) / iw) * last));
   });
   hit.addEventListener("pointerleave", hide);
+  hit.addEventListener("click", () => onPick && onPick(rows[cur].key));
   hit.addEventListener("focus", () => show(cur));
   hit.addEventListener("blur", hide);
   hit.addEventListener("keydown", (e) => {
     if (e.key === "ArrowLeft") { show(cur - 1); e.preventDefault(); }
     if (e.key === "ArrowRight") { show(cur + 1); e.preventDefault(); }
+    if (e.key === "Enter" && onPick) onPick(rows[cur].key);
   });
 }
 
@@ -407,7 +413,7 @@ async function loadBacktest() {
   $("bt-legend").innerHTML = SERIES.map((s) => `<span><i style="background:${s.color}"></i>${esc(s.name)}</span>`).join("");
   // Drawn at the real pixel width so text stays 11px; redrawn on resize.
   // The tab may be hidden at load (width 0), so draw when it is first shown too.
-  const draw = () => { if ($("bt-chart").clientWidth) dailyChart($("bt-chart"), d.daily); };
+  const draw = () => { if ($("bt-chart").clientWidth) dailyChart($("bt-chart"), d.daily, pickDay); };
   draw();
   let rz; addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(draw, 150); });
   document.querySelector('.tab[data-tab="backtest"]').addEventListener("click", () => requestAnimationFrame(draw));
@@ -416,11 +422,108 @@ async function loadBacktest() {
   $("bt-hours").innerHTML = scoreTable(d.hours, "Issued at");
 }
 
+// ── backtest: one day, and one forecast in full ─────────────────────────────
+let btTimes = [];          // every backtested issue time, oldest first
+let btDays = [];           // the days they fall on, oldest first
+let btDay = null;          // the day on screen
+let btCurrent = null;      // the forecast opened in full
+
+function markStrip(ftime) {
+  const issue = ftime.slice(11, 16);
+  const targets = [1, 2, 3].map((h) => `${String(+issue.slice(0, 2) + h).padStart(2, "0")}:00`);
+  document.querySelectorAll("#bt-strip figure").forEach((f) => {
+    const t = f.dataset.time;
+    f.classList.toggle("issue", t === issue);
+    f.classList.toggle("target", targets.includes(t));
+    f.querySelector(".role").textContent = t === issue ? "issued" : targets.includes(t) ? `t+${targets.indexOf(t) + 1}h` : "";
+  });
+  document.querySelectorAll("#bt-day-table tbody tr").forEach((tr) => tr.classList.toggle("sel", tr.dataset.ftime === ftime));
+}
+
+function dayTable(d) {
+  const cell = (z) => z ? `<td class="num">${fmt(z.forecast, 0)} / ${fmt(z.actual, 0)}
+      <span class="e">err ${fmt(z.abs_error, 0)} · <span class="${z.in_ci ? "ok" : "bad"}">${z.in_ci ? "in range" : "outside"}</span></span></td>` : "<td>—</td>";
+  const rows = d.runs.map((r) => `<tr data-ftime="${esc(r.forecast_time)}" tabindex="0">
+      <td class="num">${esc(r.forecast_time.slice(11))}</td>
+      ${HORIZONS_UI.map((h) => cell(r.horizons[h])).join("")}
+      <td class="num ghi">${fmt(r.mae)}</td><td class="num">${fmt(r.sp_mae)}</td></tr>`).join("");
+  return `<table class="day-table"><thead><tr><th>Issued</th><th>t+1h</th><th>t+2h</th><th>t+3h</th>
+    <th>Model error ${tip("abs_error")}</th><th>Persistence error ${tip("sp")}</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+const HORIZONS_UI = ["t+1h", "t+2h", "t+3h"];
+
+async function loadBacktestDay(day, ftime) {
+  btDay = day;
+  const i = btDays.indexOf(day);
+  $("bt-day").value = day;
+  $("bt-prev").disabled = i <= 0;
+  $("bt-next").disabled = i >= btDays.length - 1;
+  const r = await fetch(API.btDay(day));
+  if (btDay !== day) return;                      // a newer pick overtook this one
+  if (!r.ok) { $("bt-strip").innerHTML = `<span class="muted">No backtest for ${esc(day)}.</span>`; return; }
+  const d = await r.json();
+  const m = d.runs.filter((x) => x.mae != null);
+  $("bt-day-note").textContent = m.length
+    ? `${m.length} forecasts · mean error ${fmt(m.reduce((a, x) => a + x.mae, 0) / m.length)} W/m² (persistence ${fmt(m.reduce((a, x) => a + (x.sp_mae || 0), 0) / m.length)})` : "";
+  $("bt-strip").innerHTML = d.hours.map((h) => `<figure data-time="${h.time}">
+      <div class="t"><span>${h.time}</span></div>
+      <div class="img-slot">${h.image.status === "ready" ? `<img src="${h.image.url}" alt="scan at ${h.time} SGT" loading="lazy">` : `<span class="muted">no scan</span>`}</div>
+      <div class="a">${fmt(h.actual, 0)} <span class="muted">W/m²</span></div>
+      <div class="role"></div></figure>`).join("");
+  $("bt-day-table").innerHTML = dayTable(d);
+  $("bt-hour").innerHTML = d.runs.map((x) => `<option value="${esc(x.forecast_time)}">${esc(x.forecast_time.slice(11))}</option>`).join("");
+  document.querySelectorAll("#bt-day-table tbody tr").forEach((tr) => {
+    const open = () => loadBacktestRun(tr.dataset.ftime);
+    tr.addEventListener("click", open);
+    tr.addEventListener("keydown", (e) => { if (e.key === "Enter") open(); });
+  });
+  const pick = d.runs.some((x) => x.forecast_time === ftime) ? ftime : d.runs[0].forecast_time;
+  loadBacktestRun(pick);
+}
+
+async function loadBacktestRun(ftime) {
+  btCurrent = ftime;
+  $("bt-hour").value = ftime;
+  markStrip(ftime);
+  const r = await fetch(API.btRun(ftime));
+  if (btCurrent !== ftime) return;
+  if (!r.ok) { $("bt-columns").innerHTML = `<div class="card muted">No saved forecast for ${esc(ftime)}.</div>`; return; }
+  const d = await r.json();
+  const v3 = d.columns.map((c) => c.v3).filter((v) => v && v.abs_error != null);
+  $("bt-run-note").textContent = v3.length
+    ? `mean error ${fmt(v3.reduce((a, v) => a + v.abs_error, 0) / v3.length)} W/m² over ${v3.length} hours` : "";
+  $("bt-issue").textContent = `issued ${ftime} SGT`;
+  $("bt-inputs").innerHTML = d.inputs.map((f) => `<div><div class="k">${esc(f.label)}</div>${imgBlock(f, f.label + " satellite frame")}</div>`).join("");
+  $("bt-columns").innerHTML = d.columns.map(column).join("");
+}
+
+function pickDay(day) {
+  loadBacktestDay(day);
+  $("bt-run-bar").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+async function loadBacktestRuns() {
+  const r = await fetch(API.btRuns());
+  if (!r.ok) { $("bt-run-bar").hidden = true; return; }
+  btTimes = (await r.json()).times.slice().sort();
+  if (!btTimes.length) return;
+  btDays = [...new Set(btTimes.map((t) => t.slice(0, 10)))];
+  $("bt-day").innerHTML = btDays.slice().reverse().map((d) => `<option>${d}</option>`).join("");
+  const want = new URLSearchParams(location.search).get("backtest") || "";
+  const day = btDays.includes(want.slice(0, 10)) ? want.slice(0, 10) : btDays[btDays.length - 1];
+  loadBacktestDay(day, want);
+}
+$("bt-day").addEventListener("change", (e) => loadBacktestDay(e.target.value));
+$("bt-hour").addEventListener("change", (e) => loadBacktestRun(e.target.value));
+$("bt-prev").addEventListener("click", () => loadBacktestDay(btDays[btDays.indexOf(btDay) - 1]));
+$("bt-next").addEventListener("click", () => loadBacktestDay(btDays[btDays.indexOf(btDay) + 1]));
+
 // ── initial load ────────────────────────────────────────────────────────────
 loadConfig();
 loadForecast();
 loadFrames(null);
 loadBacktest();
+loadBacktestRuns();
 // /?forecast_time=2026-09-30%2010:00#verify opens a past day straight on the Verify tab
 loadVerification(new URLSearchParams(location.search).get("forecast_time"));
 if (["#verify", "#backtest", "#about"].includes(location.hash)) showTab(location.hash.slice(1));
