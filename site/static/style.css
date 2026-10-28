@@ -158,3 +158,25 @@ a:hover { text-decoration: underline; }
 footer { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding-top: 18px; padding-bottom: 28px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
 .weather { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
 td.ci { white-space: nowrap; }
+
+/* ── backtest ──────────────────────────────────────────────────────────── */
+:root { --s-model: #c4841a; --s-sp: #3a9fd0; }
+.legend { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin: -4px 0 10px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 16px; height: 2px; border-radius: 1px; display: inline-block; }
+.chart { position: relative; width: 100%; }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.chart .grid line { stroke: var(--line); stroke-width: 1; }
+.chart .axis text { fill: var(--muted); font-size: 11px; font-family: var(--mono); }
+.chart .series { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.chart .label { font-size: 11px; fill: var(--text); }
+.chart .hair { stroke: var(--muted); stroke-width: 1; }
+.chart .dot { stroke: var(--panel); stroke-width: 2; }
+.chart-tip { position: absolute; pointer-events: none; background: #1a2540; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 12px; white-space: nowrap; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4); }
+.chart-tip .d { color: var(--muted); margin-bottom: 4px; font-family: var(--mono); }
+.chart-tip .r { display: flex; align-items: center; gap: 8px; }
+.chart-tip .r b { font-family: var(--mono); font-weight: 600; min-width: 42px; }
+.chart-tip .r i { width: 12px; height: 2px; display: inline-block; }
+.chart-tip .r span { color: var(--muted); }
+td.good { color: var(--ok); }
+td.worse { color: var(--bad); }

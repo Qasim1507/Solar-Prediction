@@ -11,6 +11,7 @@ app shows, and writes:
     site/data/forecast.json, frames.json   /api/forecast, /api/frames
     site/data/verification/<run_id>.json   /api/verification per issue time
     site/data/verification/latest.json     ... for the latest forecast
+    site/data/backtest.json                /api/backtest (Jun-Aug replay summary)
     site/data/meta.json                    export time
     site/img/...                           satellite images, re-encoded as JPEG
 
@@ -104,6 +105,10 @@ def main():
             write_json(f"data/verification/{run_id_for(ftime)}.json", d)
             if ftime == d["latest"]:
                 write_json("data/verification/latest.json", d)
+
+    bt = client.get("/api/backtest")
+    if bt.status_code == 200:
+        write_json("data/backtest.json", bt.get_json())
 
     now = pd.Timestamp.now(tz="Asia/Singapore").strftime("%Y-%m-%d %H:%M")
     write_json("data/meta.json", {"exported_sgt": now})

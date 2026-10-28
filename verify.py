@@ -138,6 +138,19 @@ def fetch_ghi_series(past_days: int = 7) -> dict:
     }
 
 
+def csv_ghi_series(csv_path: str = CSV_PATH) -> dict:
+    """
+    Hourly GHI from the training CSV, for backtest forecasts.
+
+    The live endpoint in fetch_ghi_series only reaches back 92 days, and the
+    CSV is the same Open-Meteo/ERA5 family it serves, already on the same
+    hour-ending convention. Same {timestamp: ghi} shape as fetch_ghi_series.
+    """
+    df = load_historical_df(csv_path)
+    return {pd.Timestamp(t).floor("h"): float(v)
+            for t, v in zip(df["timestamp"], df["ghi"]) if pd.notna(v)}
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # MODEL RE-ESTIMATE (fallback — self-consistency only, not true verification)
 # ══════════════════════════════════════════════════════════════════════════════
@@ -228,7 +241,9 @@ def append_log(path: str, rows: list) -> int:
 # VERIFY
 # ══════════════════════════════════════════════════════════════════════════════
 
-def verify(model_fallback=True, log_path=LOG_PATH, forecast_path=FORECAST_PATH):
+def verify(model_fallback=True, log_path=LOG_PATH, forecast_path=FORECAST_PATH,
+           ghi_cache=None):
+    """ghi_cache: a csv_ghi_series() result to reuse across backtest runs."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     print(f"\n{'='*74}")
@@ -256,8 +271,12 @@ def verify(model_fallback=True, log_path=LOG_PATH, forecast_path=FORECAST_PATH):
             print("  Nothing to verify yet.\n")
             return
 
-    print("  Fetching GHI from Open-Meteo...")
-    series = fetch_ghi_series()
+    if forecast.get("backtest"):
+        print(f"  Backtest forecast - actual GHI from {CSV_PATH}")
+        series = ghi_cache if ghi_cache is not None else csv_ghi_series()
+    else:
+        print("  Fetching GHI from Open-Meteo...")
+        series = fetch_ghi_series()
     actuals = {pd.Timestamp(t).replace(tzinfo=None).floor("h"): series[k]
                for t in targets
                for k in [pd.Timestamp(t).replace(tzinfo=None).floor("h")]

@@ -5,6 +5,14 @@ predict_v3.py — live GHI forecast from the v3 ensemble.
     python predict_v3.py --skip-fetch     # reuse datanow/, no network
     python predict_v3.py --seeds 42       # single seed instead of the ensemble
     python predict_v3.py --no-sp-t1       # drop the persistence challenger
+    python predict_v3.py --as-of "2026-07-01 12:00" --out fc.json
+                                          # backtest: forecast from a past hour
+
+With --as-of, nothing is fetched. The lookback comes from the CSV, cut at the
+issue hour so no later row can leak in, and the three satellite frames are the
+archived scans that CSV row points at (data/satellite_aws/), the same files the
+model saw in training. The JSON is marked "backtest": true so verify.py scores
+it against the CSV's GHI instead of the live API.
 
 Differences from predict.py, which serves the v2 model:
 
@@ -99,7 +107,29 @@ def persistence_kt_sigma(df, issue_hour=None, min_n=100, fallback=0.13):
     return s if np.isfinite(s) and s > 0 else fallback
 
 
-def main():
+def backtest_frames(df, ref):
+    """
+    (current, prev1, prev2) archived scans for the CSV row at ref, or raise.
+    A missing previous frame is allowed (zero-filled, as live); a missing
+    current frame is not - the image branch would see nothing.
+    """
+    row = df[df["timestamp"] == ref]
+    if row.empty:
+        raise ValueError(f"no CSV row at {ref}")
+    row = row.iloc[0]
+    paths = []
+    for col in ("image_path", "image_path_prev1", "image_path_prev2"):
+        p = row.get(col)
+        paths.append(p if isinstance(p, str) and os.path.exists(p) else None)
+    if paths[0] is None:
+        raise ValueError(f"no archived satellite scan for {ref}")
+    for p, label in zip(paths[1:], ("t-10min", "t-20min")):
+        print(f"  {'✓' if p else '⚠️ '} {label} frame "
+              f"{p if p else 'missing - zero-filled'}")
+    return paths
+
+
+def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--seeds", type=int, nargs="+", default=[42, 1337, 2024])
     ap.add_argument("--skip-fetch", action="store_true")
@@ -110,14 +140,18 @@ def main():
                     help="publish a smart-persistence t+1h challenger (default)")
     ap.add_argument("--no-sp-t1", dest="sp_t1", action="store_false",
                     help="v3 only, as before")
-    a = ap.parse_args()
+    ap.add_argument("--as-of", default=None, metavar="'YYYY-MM-DD HH:MM'",
+                    help="backtest: issue the forecast from this past SGT hour "
+                         "using only the CSV and archived satellite scans")
+    a = ap.parse_args(argv)
+    backtest = a.as_of is not None
 
     dev = torch.device(a.device) if a.device else (
         torch.device("cuda") if torch.cuda.is_available() else
         torch.device("cpu"))
     print(f"\n{'='*62}\n  GHI FORECAST - v3 ensemble\n{'='*62}\n  Device: {dev}")
 
-    if not a.skip_fetch:
+    if not (a.skip_fetch or backtest):
         fetch_live_data()
 
     cks = [(s, f"best_model_v3_seed{s}.pt") for s in a.seeds]
@@ -129,10 +163,17 @@ def main():
     print(f"  Seeds: {[s for s, _ in cks]}")
 
     sgt = pytz.timezone("Asia/Singapore")
-    now = pd.Timestamp.now(tz=sgt).replace(minute=0, second=0, microsecond=0)
-    print(f"  Now (SGT): {now:%Y-%m-%d %H:%M}")
-
-    df = extend_with_recent(load_historical_df(a.csv))
+    if backtest:
+        now = sgt.localize(pd.Timestamp(a.as_of).floor("h").to_pydatetime())
+        print(f"  BACKTEST - issue time (SGT): {now:%Y-%m-%d %H:%M}")
+        # Cut at the issue hour: the lookback and the persistence sigma must not
+        # see anything the forecaster could not have known at the time.
+        df = load_historical_df(a.csv)
+        df = df[df["timestamp"] <= now.replace(tzinfo=None)].reset_index(drop=True)
+    else:
+        now = pd.Timestamp.now(tz=sgt).replace(minute=0, second=0, microsecond=0)
+        print(f"  Now (SGT): {now:%Y-%m-%d %H:%M}")
+        df = extend_with_recent(load_historical_df(a.csv))
     tab, past = build_window_v3(df, stats, now)
 
     # Clear-sky for t+1..t+3 on the training convention (hour mean).
@@ -144,8 +185,14 @@ def main():
     check_inputs_in_distribution(tab, None, stats)
 
     print("\n  Satellite inputs:")
-    image_ok = check_satellite_inputs(now)
-    multi, roi, _flow = load_satellite_inputs(SAT, PREV1, PREV2)
+    if backtest:
+        frames = backtest_frames(df, now.replace(tzinfo=None))
+        print(f"  ✓ t frame {frames[0]}")
+        image_ok = True
+    else:
+        frames = [SAT, PREV1, PREV2]
+        image_ok = check_satellite_inputs(now)
+    multi, roi, _flow = load_satellite_inputs(*frames)
     f_t, f_t1, f_t2 = multi[:, 0:3], multi[:, 3:6], multi[:, 6:9]
     cs_t = torch.from_numpy(cs_future).unsqueeze(0)
 
@@ -223,6 +270,7 @@ def main():
         "model": "v3 ensemble (WinnerModel, k_t target)",
         "seeds": [s for s, _ in cks],
         "forecast_time_sgt": now.strftime("%Y-%m-%d %H:%M"),
+        "backtest": backtest,
         "forecasts": [
             {"horizon": f"t+{h+1}h",
              "time_sgt": (now + timedelta(hours=h + 1)).strftime("%Y-%m-%d %H:%M"),
@@ -245,6 +293,8 @@ def main():
             "kt_issue": round(sp["kt"], 4) if sp else None,
         },
     }
+    if backtest:
+        out["diagnostics"]["satellite_frames"] = frames
 
     # A distinct horizon label, not a second "t+1h": append_log de-dupes on
     # (forecast_time, horizon), so reusing the label would silently drop one arm.
