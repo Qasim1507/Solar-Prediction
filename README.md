@@ -1,6 +1,6 @@
 # Solar Irradiance Forecasting for Singapore
 
-This project forecasts **Global Horizontal Irradiance (GHI)**, the sunlight reaching the ground, over Singapore at **1, 2 and 3 hours ahead**. It fuses 24 hours of weather data with three **Himawari-8/9 satellite frames** taken ten minutes apart. Each forecast gives a **mean and an uncertainty** for every horizon.
+This project forecasts **Global Horizontal Irradiance (GHI)**, the sunlight reaching the ground, over Singapore at **1, 2 and 3 hours ahead**. It fuses a 24-step hourly weather window — daylight hours only, so roughly 2.4 days of history — with three **Himawari-8/9 satellite frames** taken ten minutes apart. Each forecast gives a **mean and an uncertainty** for every horizon.
 
 > Solar panel output is almost exactly proportional to irradiance, and clear-sky irradiance is pure astronomy. **The entire forecasting problem is cloud.** A satellite sees cloud *upwind* of the site before it arrives. That is the information that neither sky cameras (useful for under 30 minutes) nor numerical weather models (useful beyond 6 hours) provide in the 1–3 hour window.
 
@@ -11,7 +11,7 @@ This project forecasts **Global Horizontal Irradiance (GHI)**, the sunlight reac
 ## How it works (v3)
 
 ```
-24 h weather window (14 features) ─► Conv1D stem ─► BiLSTM ─► attention pool ─► H_tab ──┐
+24 daylight steps (14 features) ─► Conv1D stem ─► BiLSTM ─► attention pool ─► H_tab ────┐
                                                                                          ├─► cross-attention ─► fused
 3 satellite frames (t, t−10, t−20 min) + zoomed crop ─► frozen EfficientNet-B0 (shared) ─► patch tokens ──┘
                                                                                          │
@@ -21,7 +21,7 @@ fused ‖ future clear-sky (3) ─► MLP head ─► μ, σ of the clear-sky in
 ```
 
 1. **Predict the clear-sky index, not raw GHI.** The target is k_t = GHI / clear-sky GHI. This removes the daily sun cycle, so the model spends its capacity on cloud rather than re-learning the time of day. The Gaussian negative log-likelihood loss is weighted by future clear-sky irradiance, so errors near noon count for more than errors near sunset.
-2. **Tabular branch.** 14 features: the clear-sky index, cloud cover, temperature, rain, wind, humidity, cyclical hour and month encodings, clear-sky GHI, and GHI lags at 1, 2 and 3 hours. They pass through a 1D convolution stem (for interactions between lags), a 2-layer bidirectional LSTM, and attention pooling.
+2. **Tabular branch.** 14 features: the clear-sky index, cloud cover, temperature, rain, wind, humidity, cyclical hour and month encodings, clear-sky GHI, and GHI lags at 1, 2 and 3 hours. The window is **24 hourly steps of daylight only** (08:00–17:00 SGT), so it reaches back about 2.4 calendar days rather than one. Training never saw a night row, and feeding live 24-hour windows made 14 of every 24 steps night-time zeros the model had no basis for — see the note in `build_lookback_window`. They pass through a 1D convolution stem (for interactions between lags), a 2-layer bidirectional LSTM, and attention pooling.
 3. **Image branch.** One **ImageNet-pretrained EfficientNet-B0**, frozen and shared across the three frames and a zoomed crop around Singapore. The frames keep RGB because the AWS composite carries infrared in the blue channel.
 4. **Cross-attention fusion.** The weather representation attends over the satellite patch tokens.
 5. **Probabilistic head and ensemble.** Three models trained with different seeds are combined with **precision weighting**, which is the correct rule for Gaussian outputs: a model that is confident about a sample gets more say on it. A physics cap (k_t ≤ 1.15) is applied in k_t space before converting back to W/m², so the uncertainty interval doesn't collapse to a single point.
