@@ -9,9 +9,13 @@ baselines on EXACTLY the same rows.
 deep models carry a selection advantage the tabular baselines do not. --split
 test is held out from both training and selection and is the number to quote.
 
-The ensemble is precision-weighted, which is the right combination rule for
-Gaussian heads: a seed that is confident on a sample gets more say on it than
-one that is not. Plain averaging throws that information away.
+Two ensemble rules are scored. "v3 ensemble" is the precision-weighted combine
+the pipeline shipped until 2026-11-11; "v3 ensemble (mixture)" is the standard
+equal-weight deep-ensemble predictive variance. The precision rule shrinks
+sigma by ~1/sqrt(K) and discards the spread of the seed means, so its nominal
+90% intervals cover only 71.9% of the test split against the mixture's 91.2%.
+predict_v3.py now uses the mixture rule; both are kept here so the regression
+stays visible.
 
 Everything is scored on the rows KtDataset actually yields, so the deep models
 and LightGBM see one identical row set and the comparison is honest.
@@ -58,6 +62,18 @@ def metrics(actual, pred, ref_mae=None):
     if ref_mae:
         out["Skill_vs_SP"] = float(skill_score(mae, ref_mae))
     return out
+
+
+def pi_metrics(mu_kt, sg_kt, cs_fut, actual, z=1.645):
+    """Empirical coverage of the nominal 90% interval, built exactly the way
+    predict_v3.py builds it: clamp the mean in k_t space, clamp the two bounds
+    in k_t space, then scale by clear-sky."""
+    mu_c = np.clip(mu_kt, 0.0, KT_CAP)
+    lo = np.clip(mu_c - z * sg_kt, 0.0, KT_CAP) * cs_fut
+    hi = np.clip(mu_c + z * sg_kt, 0.0, KT_CAP) * cs_fut
+    return {"mean_sigma_kt": float(np.mean(sg_kt)),
+            "mean_halfwidth_wm2": float(np.mean((hi - lo) / 2.0)),
+            "PI90_coverage": float(np.mean((actual >= lo) & (actual <= hi)))}
 
 
 def main():
@@ -125,7 +141,7 @@ def main():
         print(f"  {nm:22s} MAE={results['models'][nm]['MAE']:7.2f}")
 
     # ── v3 seeds ─────────────────────────────────────────────────────────────
-    mus, sigs = [], []
+    mus, sigs, used_seeds = [], [], []
     for s in a.seeds:
         ck = f"best_model_v3_seed{s}.pt"
         if not os.path.exists(ck):
@@ -144,22 +160,61 @@ def main():
         sg_kt = torch.cat(SG).numpy() * st["kt_std"]
         P = np.clip(mu_kt, 0, KT_CAP) * cs_fut
         results["models"][f"v3 seed {s}"] = metrics(actual, P, ref)
+        results["models"][f"v3 seed {s}"].update(
+            pi_metrics(mu_kt, np.maximum(sg_kt, 1e-6), cs_fut, actual))
         per_sample[f"v3 seed {s}"] = np.abs(P - actual).mean(1)
         mus.append(mu_kt); sigs.append(np.maximum(sg_kt, 1e-6))
+        used_seeds.append(s)
         print(f"  v3 seed {s:<16d} MAE={results['models'][f'v3 seed {s}']['MAE']:7.2f}")
         del m
 
-    # ── precision-weighted Gaussian ensemble ─────────────────────────────────
+    # ── ensembles: the shipped precision rule vs the mixture variance ────────
+    # "v3 ensemble" is kept as the precision-weighted combination the pipeline
+    # shipped, so the key the report builder reads does not move. The mixture
+    # entry is the standard equal-weight deep-ensemble predictive variance:
+    # average within-model variance PLUS the spread of the member means, which
+    # the precision rule throws away (it shrinks sigma by ~1/sqrt(K) instead).
     if len(mus) >= 2:
         w = [1.0 / (s ** 2) for s in sigs]
         mu_ens = sum(m * wi for m, wi in zip(mus, w)) / sum(w)
         sg_ens = np.sqrt(1.0 / sum(w))
         P = np.clip(mu_ens, 0, KT_CAP) * cs_fut
         results["models"]["v3 ensemble"] = metrics(actual, P, ref)
-        results["models"]["v3 ensemble"]["mean_sigma_kt"] = float(sg_ens.mean())
+        results["models"]["v3 ensemble"].update(
+            pi_metrics(mu_ens, sg_ens, cs_fut, actual))
         per_sample["v3 ensemble"] = np.abs(P - actual).mean(1)
         print(f"  {'v3 ensemble':22s} MAE={results['models']['v3 ensemble']['MAE']:7.2f}"
               f"  ({len(mus)} seeds)")
+
+        MU = np.stack(mus)                        # (K, N, 3)
+        SG = np.stack(sigs)
+        mu_mix = MU.mean(0)
+        sg_mix = np.sqrt((SG ** 2).mean(0) + ((MU - mu_mix) ** 2).mean(0))
+        Pm = np.clip(mu_mix, 0, KT_CAP) * cs_fut
+        results["models"]["v3 ensemble (mixture)"] = metrics(actual, Pm, ref)
+        results["models"]["v3 ensemble (mixture)"].update(
+            pi_metrics(mu_mix, sg_mix, cs_fut, actual))
+        results["models"]["v3 ensemble (mixture)"]["mean_spread_kt"] = float(
+            np.sqrt(((MU - mu_mix) ** 2).mean(0)).mean())
+        results["models"]["v3 ensemble (mixture)"]["sigma_ratio_vs_precision"] = float(
+            (sg_mix / sg_ens).mean())
+        per_sample["v3 ensemble (mixture)"] = np.abs(Pm - actual).mean(1)
+        print(f"  {'v3 ensemble (mixture)':22s} "
+              f"MAE={results['models']['v3 ensemble (mixture)']['MAE']:7.2f}"
+              f"  sigma x{(sg_mix / sg_ens).mean():.2f}")
+
+        for nm in ("v3 ensemble", "v3 ensemble (mixture)"):
+            r = results["models"][nm]
+            print(f"    {nm:22s} 90% PI coverage {100 * r['PI90_coverage']:5.1f}%"
+                  f"  halfwidth {r['mean_halfwidth_wm2']:6.1f} W/m2")
+
+        # per-seed mu/sigma, so any other combination rule or calibration
+        # factor can be scored later without re-running inference
+        os.makedirs("analysis", exist_ok=True)
+        npz = os.path.join("analysis", f"v3_members_{a.split}.npz")
+        np.savez_compressed(npz, mu_kt=MU, sg_kt=SG, cs_fut=cs_fut,
+                            actual=actual, seeds=np.asarray(used_seeds))
+        print(f"  members -> {npz}")
 
     # ── the question ─────────────────────────────────────────────────────────
     deep = [k for k in per_sample if k.startswith("v3")]
