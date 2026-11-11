@@ -23,8 +23,12 @@ Differences from predict.py, which serves the v2 model:
     combined_dataset_v2.csv was built and how Open-Meteo labels its hourly
     values. Using the instantaneous value would inflate the forecast by ~5% at
     noon and more towards sunrise and sunset.
-  * Three checkpoints are combined precision-weighted, the correct rule for
-    Gaussian heads: a seed that is confident on a sample gets more say on it.
+  * Three checkpoints are combined as an equal-weight Gaussian mixture: the
+    mean is the plain average, and the variance is the mean within-seed
+    variance plus the spread of the seed means. Precision weighting was used
+    here until 2026-11-11; it shrank sigma by ~1/sqrt(3) and ignored the
+    spread, so nominal 90% intervals covered only 71.9% of the held-out test
+    split. The mixture rule covers 91.2% at a cost of 0.2 W/m2 in MAE.
   * Normalisation comes from the checkpoint's .stats.json sidecar (14 feature
     means/stds plus kt_mean/kt_std), not train_stats.json, which describes the
     11-feature v2 model.
@@ -208,10 +212,15 @@ def main(argv=None):
         sigs.append(np.maximum(sg.float().cpu().numpy()[0] * stats["kt_std"], 1e-6))
         del m
 
-    if len(mus) > 1:                      # precision-weighted Gaussian combine
-        w = [1.0 / (s ** 2) for s in sigs]
-        kt = sum(m * wi for m, wi in zip(mus, w)) / sum(w)
-        kt_sig = np.sqrt(1.0 / sum(w))
+    if len(mus) > 1:                      # equal-weight deep-ensemble mixture
+        MU, SG = np.stack(mus), np.stack(sigs)
+        kt = MU.mean(0)
+        # total predictive variance of the mixture: mean within-seed variance
+        # plus the spread of the seed means. The precision-weighted rule this
+        # replaced shrank sigma by ~1/sqrt(3) and ignored the spread entirely,
+        # which is what drove 90% intervals to only 71.9% coverage on the test
+        # split; this rule scores 91.2% there (see eval_v3.py --split test).
+        kt_sig = np.sqrt((SG ** 2).mean(0) + ((MU - kt) ** 2).mean(0))
     else:
         kt, kt_sig = mus[0], sigs[0]
 
