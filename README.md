@@ -4,6 +4,8 @@ This project forecasts **Global Horizontal Irradiance (GHI)**, the sunlight reac
 
 > Solar panel output is almost exactly proportional to irradiance, and clear-sky irradiance is pure astronomy. **The entire forecasting problem is cloud.** A satellite sees cloud *upwind* of the site before it arrives. That is the information that neither sky cameras (useful for under 30 minutes) nor numerical weather models (useful beyond 6 hours) provide in the 1–3 hour window.
 
+**Status:** complete. No further development is planned; live forecasting stopped on 2026-10-28.
+
 **Headline result (v3):** replayed over **147 days (1,029 forecasts) it never saw in training**, the shipped v3 ensemble scores **64.1 W/m² MAE against 86.9 for smart persistence (26% lower error)**. It beats persistence on **128 of 147 days**, and **91.0%** of actual values fall inside its 90% interval. Against LightGBM on the held-out test split it scores 63.6 vs 66.2 W/m². That gap is **not statistically significant** (Diebold-Mariano p = 0.054), so the honest claim is "on par with LightGBM, plus calibrated uncertainty". See [Results](#results).
 
 ---
@@ -102,22 +104,63 @@ The files in `results/` describe the **retired v2 model**. Its numbers were neve
 
 ## Repository layout
 
+The core modules sit at the repository root and are run from there: they import each other and use root-relative paths, and the report build, web app and backtest read their outputs in place.
+
+**Model and pipeline**
+
 | Path | Purpose |
 |------|---------|
 | `model.py` | Model definitions (v3 `WinnerModel` and legacy v2) and shared helpers |
 | `train.py` | v3 training: one seed per run, configured by `winner.yaml` |
 | `eval_v3.py` | Scores the seeds, the ensemble and the tabular baselines on identical rows, with a Diebold-Mariano test |
 | `predict_v3.py` | Live forecast from the v3 ensemble → `forecast_latest_v3.json` |
+| `predict.py` | v2 forecast entry point; kept because `predict_v3.py` reuses its live-data fetch and satellite checks |
 | `verify.py` | Scores past forecasts against what actually happened |
-| `scripts/backtest.py` | Replays the pipeline over the test-split dates → `verification_log_backtest.csv` |
-| `webapp/` | Dashboard (forecast, verification and backtest tabs); `export_static.py` builds the static `site/` |
 | `run_v3.sh` | Full pipeline: trains 3 seeds, then evaluates |
 | `best_model_v3_seed*.pt` | The three v3 checkpoints (~19 MB each), each with a `.stats.json` normalisation file and a `.history.json` training log |
-| `historical_data.py`, `himawari_aws.py`, `combined_dataset.py` | Data collection and alignment |
-| `scripts/build_npy_cache.py` | Builds the 224×224 frame cache from the command line |
-| `solar_pv_main.ipynb` | The original v2 notebook: exploratory analysis, baselines and ablations |
+
+**Data collection**
+
+| Path | Purpose |
+|------|---------|
+| `historical_data.py` | Open-Meteo hourly weather and GHI → `data/pv_dataset_sg.csv` |
+| `fetch_solcast.py` | PV ground-truth series (PVGIS + Open-Meteo/pvlib) → `data/pv_ground_truth_sg.csv` |
+| `himawari_aws.py` | Himawari scan download and Singapore crop from NOAA's AWS bucket |
+| `combined_dataset.py` | Aligns weather rows with satellite frames → the combined training CSV |
+| `current_data.py` | Live weather and satellite collectors used by `verify.py` |
+| `colab/himawari_extract.ipynb` | Colab notebook for bulk Himawari extraction |
+
+**Scripts** (`scripts/`, run from the repository root)
+
+| Path | Purpose |
+|------|---------|
+| `backtest.py` | Replays the pipeline over the test-split dates → `verification_log_backtest.csv` |
+| `build_npy_cache.py` | Builds the 224×224 frame cache |
+| `fetch_training_images.py` | Downloads only the scans the training set uses |
+| `runpod_setup.sh` | Bootstraps a fresh RunPod pod and fetches the training frames |
+| `compare_t1.py` | Decision rule for the t+1h v3-vs-persistence trial (live log) |
+| `regime_binning.py` | Backtest error broken down by sky regime, with bootstrap CIs |
+
+**Outputs and records**
+
+| Path | Purpose |
+|------|---------|
+| `data/*.csv` | Committed tabular datasets (satellite imagery is not committed) |
+| `analysis/` | v3 evaluation results on validation and test, incl. the shipped mixture-rule numbers |
+| `backtest/forecasts/` | The 1,029 backtest forecasts, one JSON per run |
+| `verification_log_*.csv` | Scored forecasts: live v3 run, backtest, and backtest under the retired precision rule |
+| `logs/` | Training, evaluation, download and backtest logs |
+| `results/` | Retired v2 metrics and plots (not reproducible; record only) |
+| `webapp/` | Dashboard (forecast, verification and backtest tabs); `export_static.py` builds `site/` |
+| `site/` | Static export of the dashboard, served by Vercel |
+
+**Docs**
+
+| Path | Purpose |
+|------|---------|
 | `docs/notes/` | Obsidian vault with design notes, experiments, issues and limitations (written during v2) |
 | `RUNPOD.md` | Guide to training on a RunPod GPU instance |
+| `solar_pv_main.ipynb` | The original v2 notebook: exploratory analysis, baselines and ablations |
 
 ---
 
