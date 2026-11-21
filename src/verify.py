@@ -549,7 +549,7 @@ if __name__ == "__main__":
                    help="Only use measured actuals; never re-estimate")
     p.add_argument("--log", default=LOG_PATH, help="Path to the verification log")
     p.add_argument("--forecast", default=FORECAST_PATH,
-                   help="Forecast JSON to verify (use forecast_latest_v3.json "
+                   help="Forecast JSON to verify (use outputs/forecast_latest_v3.json "
                         "for the v3 ensemble, with its own --log)")
     a = p.parse_args()
 

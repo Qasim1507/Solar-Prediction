@@ -9,11 +9,11 @@ For every issue hour (08:00-14:00 SGT by default, so t+3h lands by 17:00, the
 end of the training window) it runs the same two steps as a live day, back to
 back:
 
-    predict_v3.py --as-of "<day> <hour>" --out backtest/forecasts/<run_id>.json
-    verify.py --forecast <that file> --log verification_log_backtest.csv --no-model-fallback
+    predict_v3.py --as-of "<day> <hour>" --out outputs/backtest/forecasts/<run_id>.json
+    verify.py --forecast <that file> --log outputs/verification/verification_log_backtest.csv --no-model-fallback
 
 Both run in this process, so torch and the CSV load once rather than ~1,000
-times. Each step's own output goes to logs/backtest.log; the terminal gets one
+times. Each step's own output goes to outputs/logs/backtest.log; the terminal gets one
 line per forecast.
 
 Resumable: issue times already in the log are skipped. Hours with no archived
@@ -42,9 +42,9 @@ sys.path.insert(0, str(ROOT / "src"))
 import predict_v3               # noqa: E402
 import verify                   # noqa: E402
 
-LOG = "verification_log_backtest.csv"
-FC_DIR = ROOT / "backtest" / "forecasts"
-RUN_LOG = ROOT / "logs" / "backtest.log"
+LOG = "outputs/verification/verification_log_backtest.csv"
+FC_DIR = ROOT / "outputs" / "backtest" / "forecasts"
+RUN_LOG = ROOT / "outputs" / "logs" / "backtest.log"
 
 
 def issue_times(start, end, first_hour, last_hour):

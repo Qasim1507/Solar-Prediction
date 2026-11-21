@@ -5,12 +5,12 @@ webapp/app.py — a local front end for the daily v3 loop.
 
 The two buttons run the same commands as the manual daily run, unchanged:
 
-    predict_v3.py --out forecast_latest_v3.json
-    verify.py --forecast forecast_latest_v3.json --log verification_log_v3.csv --no-model-fallback
+    src/predict_v3.py --out outputs/forecast_latest_v3.json
+    src/verify.py --forecast outputs/forecast_latest_v3.json --log outputs/verification/verification_log_v3.csv --no-model-fallback
 
 Nothing here forecasts or scores anything. The app streams the scripts' output
-and reads what they write: forecast_latest_v3.json, datanow/, and
-verification_log_v3.csv. Target-hour satellite images for the verification
+and reads what they write: outputs/forecast_latest_v3.json, datanow/, and
+outputs/verification/verification_log_v3.csv. Target-hour satellite images for the verification
 view come from himawari_aws.extract_scan, the same NOAA crops the model sees.
 
 After a successful run the app republishes the public site: it runs
@@ -38,10 +38,10 @@ PY = ROOT / ".venv" / "bin" / "python"
 if not PY.exists():
     PY = Path(sys.executable)
 
-FORECAST = ROOT / "forecast_latest_v3.json"
-LOG = ROOT / "verification_log_v3.csv"
-BACKTEST_LOG = ROOT / "verification_log_backtest.csv"  # scripts/backtest.py
-BACKTEST_FC = ROOT / "backtest" / "forecasts"           # one JSON per issue time
+FORECAST = ROOT / "outputs" / "forecast_latest_v3.json"
+LOG = ROOT / "outputs" / "verification" / "verification_log_v3.csv"
+BACKTEST_LOG = ROOT / "outputs" / "verification" / "verification_log_backtest.csv"  # scripts/backtest.py
+BACKTEST_FC = ROOT / "outputs" / "backtest" / "forecasts"           # one JSON per issue time
 ARCHIVE = ROOT / "data" / "satellite_aws"               # the scans the model trained on
 CSV = ROOT / "data" / "combined_dataset_v2.csv"
 SUMMARY = ROOT / "datanow" / "current" / "current_summary.json"
@@ -53,9 +53,9 @@ FRAMES = ["himawari_current.png", "himawari_prev1.png", "himawari_prev2.png"]
 HORIZONS = ["t+1h", "t+2h", "t+3h"]
 
 COMMANDS = {
-    "predict": ["src/predict_v3.py", "--out", "forecast_latest_v3.json"],
-    "verify": ["src/verify.py", "--forecast", "forecast_latest_v3.json",
-               "--log", "verification_log_v3.csv", "--no-model-fallback"],
+    "predict": ["src/predict_v3.py", "--out", "outputs/forecast_latest_v3.json"],
+    "verify": ["src/verify.py", "--forecast", "outputs/forecast_latest_v3.json",
+               "--log", "outputs/verification/verification_log_v3.csv", "--no-model-fallback"],
 }
 
 PUBLISH = os.environ.get("PUBLISH", "1") != "0"

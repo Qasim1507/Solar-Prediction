@@ -11,7 +11,7 @@ bootstrap CI on the MAE difference against smart persistence.
 import csv, sys, random
 
 random.seed(0)
-LOG = sys.argv[1] if len(sys.argv) > 1 else "verification_log_backtest.csv"
+LOG = sys.argv[1] if len(sys.argv) > 1 else "outputs/verification/verification_log_backtest.csv"
 
 # The log also carries standalone smart-persistence rows (method smart_persistence,
 # horizon t+1h-sp) from the A/B trial; those are not v3 forecasts.

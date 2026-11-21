@@ -5,12 +5,12 @@ set -e
 cd "$(dirname "$0")"
 PY=.venv/bin/python
 DEV=${DEV:-mps}          # cuda on RunPod
-mkdir -p logs analysis
+mkdir -p outputs/logs outputs/analysis
 
 for s in 42 1337 2024; do
   echo "=== seed $s ==="
-  $PY -u src/train.py --seed "$s" --device "$DEV" 2>&1 | tee "logs/train_v3_seed$s.log"
+  $PY -u src/train.py --seed "$s" --device "$DEV" 2>&1 | tee "outputs/logs/train_v3_seed$s.log"
 done
 
-$PY -u src/eval_v3.py --seeds 42 1337 2024 --device "$DEV" 2>&1 | tee logs/eval_v3.log
-echo "done -> analysis/v3_results.json"
+$PY -u src/eval_v3.py --seeds 42 1337 2024 --device "$DEV" 2>&1 | tee outputs/logs/eval_v3.log
+echo "done -> outputs/analysis/v3_results.json"

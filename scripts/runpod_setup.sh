@@ -33,16 +33,16 @@ echo "==> Installing Python dependencies"
 pip install --quiet --upgrade numpy pillow requests h5py pandas psutil \
     matplotlib scikit-learn torch torchvision
 
-mkdir -p "$OUT" logs
+mkdir -p "$OUT" outputs/logs
 
 if [ "$MODE" = "full" ]; then
     echo "==> FULL download ${START} .. ${END} → ${OUT}  (~51 GB, ~3.5 h)"
     python src/himawari_aws.py --start "$START" --end "$END" \
-        --out "$OUT" --workers "$WORKERS" 2>&1 | tee -a logs/himawari_download.log
+        --out "$OUT" --workers "$WORKERS" 2>&1 | tee -a outputs/logs/himawari_download.log
 else
     echo "==> TRAINING-SET download → ${OUT}  (~2.4 GB, ~25 min)"
     python scripts/fetch_training_images.py \
-        --out "$OUT" --workers "$WORKERS" 2>&1 | tee -a logs/himawari_download.log
+        --out "$OUT" --workers "$WORKERS" 2>&1 | tee -a outputs/logs/himawari_download.log
 fi
 
 echo "==> Scans on disk: $(find "$OUT" -name '*.png' | wc -l)"

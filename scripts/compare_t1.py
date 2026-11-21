@@ -4,7 +4,7 @@ compare_t1.py — decide who serves t+1h: the v3 ensemble or smart persistence.
     python scripts/compare_t1.py
     python scripts/compare_t1.py --since 2026-09-27     # only the new trial days
 
-Read-only. Reads verification_log_v3.csv and prints a verdict.
+Read-only. Reads outputs/verification/verification_log_v3.csv and prints a verdict.
 
 The decision rule, fixed in advance so the answer is computed rather than
 eyeballed. Smart persistence takes over t+1h only if BOTH hold:
@@ -33,7 +33,7 @@ import pandas as pd
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 from model import skill_score
 
-LOG = "./verification_log_v3.csv"
+LOG = "./outputs/verification/verification_log_v3.csv"
 MIN_GAIN = 15.0          # percent MAE reduction smart persistence must clear
 V3_METHOD = "v3_ensemble"
 

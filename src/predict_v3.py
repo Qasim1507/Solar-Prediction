@@ -139,7 +139,7 @@ def main(argv=None):
     ap.add_argument("--skip-fetch", action="store_true")
     ap.add_argument("--csv", default=CSV)
     ap.add_argument("--device", default=None)
-    ap.add_argument("--out", default="./forecast_latest_v3.json")
+    ap.add_argument("--out", default="./outputs/forecast_latest_v3.json")
     ap.add_argument("--sp-t1", dest="sp_t1", action="store_true", default=True,
                     help="publish a smart-persistence t+1h challenger (default)")
     ap.add_argument("--no-sp-t1", dest="sp_t1", action="store_false",

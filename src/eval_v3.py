@@ -81,7 +81,7 @@ def main():
     ap.add_argument("--seeds", type=int, nargs="+", default=[42, 1337, 2024])
     ap.add_argument("--csv", default="data/combined_dataset_v2.csv")
     ap.add_argument("--device", default=None)
-    ap.add_argument("--out", default="analysis/v3_results.json")
+    ap.add_argument("--out", default="outputs/analysis/v3_results.json")
     ap.add_argument("--split", choices=["val", "test"], default="val",
                     help="val = the rows checkpoints were selected on "
                          "(optimistic); test = held out from both training "
@@ -210,8 +210,8 @@ def main():
 
         # per-seed mu/sigma, so any other combination rule or calibration
         # factor can be scored later without re-running inference
-        os.makedirs("analysis", exist_ok=True)
-        npz = os.path.join("analysis", f"v3_members_{a.split}.npz")
+        os.makedirs("outputs/analysis", exist_ok=True)
+        npz = os.path.join("outputs/analysis", f"v3_members_{a.split}.npz")
         np.savez_compressed(npz, mu_kt=MU, sg_kt=SG, cs_fut=cs_fut,
                             actual=actual, seeds=np.asarray(used_seeds))
         print(f"  members -> {npz}")
@@ -234,7 +234,7 @@ def main():
               f"{'DEEP WINS' if d.mean() < 0 else 'LightGBM wins'}"
               f"{' (significant)' if p < 0.05 else ' (not significant)'}")
 
-    os.makedirs("analysis", exist_ok=True)
+    os.makedirs("outputs/analysis", exist_ok=True)
     json.dump(results, open(a.out, "w"), indent=2)
     print(f"\nwritten -> {a.out}")
 
