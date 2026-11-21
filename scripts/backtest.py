@@ -36,7 +36,7 @@ from pathlib import Path
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
-os.chdir(ROOT)                  # both scripts use ./data, ./best_model_v3_*.pt
+os.chdir(ROOT)                  # both scripts use ./data, ./models/best_model_v3_*.pt
 sys.path.insert(0, str(ROOT))
 
 import predict_v3               # noqa: E402

@@ -158,7 +158,7 @@ def main(argv=None):
     if not (a.skip_fetch or backtest):
         fetch_live_data()
 
-    cks = [(s, f"best_model_v3_seed{s}.pt") for s in a.seeds]
+    cks = [(s, f"models/best_model_v3_seed{s}.pt") for s in a.seeds]
     cks = [(s, c) for s, c in cks if os.path.exists(c)]
     if not cks:
         raise SystemExit("no v3 checkpoints found")

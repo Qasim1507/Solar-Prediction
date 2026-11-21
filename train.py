@@ -258,7 +258,7 @@ def main():
         p = (e - warm) / max(epochs - warm, 1)
         return 0.5 * (1 + math.cos(math.pi * p))
 
-    out = a.out or f"best_model_v3_seed{a.seed}.pt"
+    out = a.out or f"models/best_model_v3_seed{a.seed}.pt"
     best_mae, best_ep = float("inf"), -1
     patience = g("early_stop", 15)
     hist = []

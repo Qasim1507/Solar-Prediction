@@ -143,7 +143,7 @@ def main():
     # ── v3 seeds ─────────────────────────────────────────────────────────────
     mus, sigs, used_seeds = [], [], []
     for s in a.seeds:
-        ck = f"best_model_v3_seed{s}.pt"
+        ck = f"models/best_model_v3_seed{s}.pt"
         if not os.path.exists(ck):
             print(f"  skip seed {s}: no {ck}")
             continue
