@@ -4,7 +4,7 @@ This project forecasts **Global Horizontal Irradiance (GHI)**, the sunlight reac
 
 > Solar panel output is almost exactly proportional to irradiance, and clear-sky irradiance is pure astronomy. **The entire forecasting problem is cloud.** A satellite sees cloud *upwind* of the site before it arrives. That is the information that neither sky cameras (useful for under 30 minutes) nor numerical weather models (useful beyond 6 hours) provide in the 1–3 hour window.
 
-**Headline result (v3):** on a held-out test split of 1,015 samples that was never used for training or model selection, the v3 ensemble scores **63.4 W/m² MAE**, compared with LightGBM's 66.2. That's a 2.84 W/m² improvement (Diebold-Mariano p = 0.040, which is borderline; see [Results](#results)).
+**Headline result (v3):** replayed over **147 days (1,029 forecasts) it never saw in training**, the shipped v3 ensemble scores **64.1 W/m² MAE against 86.9 for smart persistence (26% lower error)**. It beats persistence on **128 of 147 days**, and **91.0%** of actual values fall inside its 90% interval. Against LightGBM on the held-out test split it scores 63.6 vs 66.2 W/m². That gap is **not statistically significant** (Diebold-Mariano p = 0.054), so the honest claim is "on par with LightGBM, plus calibrated uncertainty". See [Results](#results).
 
 ---
 
@@ -24,7 +24,7 @@ fused ‖ future clear-sky (3) ─► MLP head ─► μ, σ of the clear-sky in
 2. **Tabular branch.** 14 features: the clear-sky index, cloud cover, temperature, rain, wind, humidity, cyclical hour and month encodings, clear-sky GHI, and GHI lags at 1, 2 and 3 hours. The window is **24 hourly steps of daylight only** (08:00–17:00 SGT), so it reaches back about 2.4 calendar days rather than one. Training never saw a night row, and feeding live 24-hour windows made 14 of every 24 steps night-time zeros the model had no basis for — see the note in `build_lookback_window`. They pass through a 1D convolution stem (for interactions between lags), a 2-layer bidirectional LSTM, and attention pooling.
 3. **Image branch.** One **ImageNet-pretrained EfficientNet-B0**, frozen and shared across the three frames and a zoomed crop around Singapore. The frames keep RGB because the AWS composite carries infrared in the blue channel.
 4. **Cross-attention fusion.** The weather representation attends over the satellite patch tokens.
-5. **Probabilistic head and ensemble.** Three models trained with different seeds are combined with **precision weighting**, which is the correct rule for Gaussian outputs: a model that is confident about a sample gets more say on it. A physics cap (k_t ≤ 1.15) is applied in k_t space before converting back to W/m², so the uncertainty interval doesn't collapse to a single point.
+5. **Probabilistic head and ensemble.** Three models trained with different seeds are combined as an **equal-weight Gaussian mixture**: the mean is the plain average of the seed means, and the variance is the mean seed variance plus the spread of the seed means (σ² = mean(σᵢ²) + mean((μᵢ − μ̄)²)). Until 2026-11-11 the seeds were combined with precision weighting, which shrank σ by about 1/√3 and threw away the disagreement between seeds, so its 90% intervals covered only 71.9% of the test split. The mixture rule covers 91.2%, with no calibration factor needed. A physics cap (k_t ≤ 1.15) is applied in k_t space before converting back to W/m², so the uncertainty interval doesn't collapse to a single point.
 
 The model has **4.8M parameters, 1.24M of them trainable.** v2 had 15.5M.
 
@@ -41,11 +41,30 @@ v3 fixes each of these directly with a frozen shared encoder, cross-attention in
 
 ## Results
 
-**Held-out test split** (chronological last 15%, n = 1,015; all models scored on identical rows; `analysis/v3_results_test.json`):
+### Backtest: 147 unseen days
+
+`scripts/backtest.py` replays the full pipeline over the test split's dates (2026-04-21 → 2026-09-14). The model forecasts every hour from 08:00 to 14:00 SGT, using only the weather and satellite frames available at that moment, and each forecast is scored against what happened (`verification_log_backtest.csv`, summarised in `report/data/results.json`).
+
+| | t+1h | t+2h | t+3h | All |
+|---|---:|---:|---:|---:|
+| v3 ensemble MAE (W/m²) | 53.8 | 66.2 | 72.4 | **64.1** |
+| Smart persistence MAE | 62.1 | 93.1 | 105.7 | 86.9 |
+| Skill vs smart persistence | +13.4% | +28.9% | +31.5% | **+26.2%** |
+| Inside the 90% interval | 89.5% | 91.0% | 92.6% | **91.0%** |
+
+- 1,029 forecast runs, 3,087 scored pairs. v3 has the lower daily mean error on 128 of 147 days.
+- Skill grows with horizon, which is what you'd expect if the model carries information about how cloud is evolving.
+- These are the same dates as the offline test split below, so this is the same held-out period scored end to end through the live code path, not an independent second test.
+- `verification_log_backtest_precision.csv` keeps the run under the old precision-weighted rule (MAE 63.9, coverage 71.7%) so the before/after comparison can be reproduced.
+
+### Held-out test split
+
+Chronological last 15%, n = 1,015; all models scored on identical rows (`analysis/v3_results_test_mixture.json`):
 
 | Model | MAE (W/m²) | RMSE | R² | Skill vs smart persistence |
 |-------|-----:|-----:|-----:|-----:|
-| **v3 ensemble (3 seeds)** | **63.38** | **91.3** | **0.767** | **+26.3%** |
+| **v3 ensemble (3 seeds, mixture; shipped)** | **63.60** | **91.1** | **0.767** | **+26.1%** |
+| v3 ensemble (precision-weighted; retired 2026-11-11) | 63.38 | 91.3 | 0.767 | +26.3% |
 | v3 seed 42 | 64.69 | 92.2 | 0.764 | +24.8% |
 | v3 seed 2024 | 65.14 | 93.7 | 0.753 | +24.3% |
 | v3 seed 1337 | 65.18 | 94.4 | 0.751 | +24.2% |
@@ -56,9 +75,10 @@ v3 fixes each of these directly with a frozen shared encoder, cross-attention in
 
 **How to read these numbers:**
 - **Every seed beats LightGBM on its own**, so the result doesn't depend on one lucky training run.
-- The ensemble-vs-LightGBM difference has **p = 0.040** (Diebold-Mariano test with HAC correction). On synthetic null data of this size the test fired 8% of the time at a nominal 5%, so treat this as **borderline, not settled**.
+- Against LightGBM, the shipped ensemble is **63.60 vs 66.23 W/m², p = 0.054** (Diebold-Mariano test with HAC correction): **not significant at 5%**. The retired precision-weighted mean gave p = 0.040, but that rule's intervals were badly overconfident. On synthetic null data of this size the test fired 8% of the time at a nominal 5%, so even 0.040 was borderline. The fair summary is that v3 matches LightGBM on point accuracy, and it also produces a calibrated interval (91.2% coverage at a nominal 90%) that LightGBM doesn't.
+- No ablation was run for v3, so these results don't show that the satellite branch is what improves accuracy.
 - On the validation split the gap is larger (7.25 W/m², p = 0.0002). Checkpoints were selected on those rows, though, so that figure is optimistic, and the test numbers above are the ones to quote.
-- **Live check:** the v3 ensemble has been forecasting daily since 2026-09-21 (`verification_log_v3.csv`). Over that first small sample (18 forecasts across 6 days) it has **underperformed smart persistence**, especially at t+1h. `predict_v3.py` now publishes a smart-persistence t+1h forecast alongside every v3 forecast so the two can be compared fairly as more days come in.
+- **Live check:** v3 forecast live from 2026-09-21 to 2026-10-16 (63 forecasts over 21 days, `verification_log_v3.csv`), using the old precision-weighted intervals. It was ahead of smart persistence at t+2h (98.1 vs 112.1 W/m²) and t+3h (115.9 vs 129.7). At t+1h the two were level (89.3 vs 85.7, paired p = 0.88). The backtest shows v3 ahead at t+1h, and the cause of the difference was never isolated, so nothing is claimed about live t+1h performance. Live runs stopped on 2026-10-28 in favour of the backtest.
 
 The files in `results/` describe the **retired v2 model**. Its numbers were never reproduced across machines (a CUDA run and a local CPU run disagree), so they're kept only as a record and shouldn't be quoted.
 
@@ -89,6 +109,8 @@ The files in `results/` describe the **retired v2 model**. Its numbers were neve
 | `eval_v3.py` | Scores the seeds, the ensemble and the tabular baselines on identical rows, with a Diebold-Mariano test |
 | `predict_v3.py` | Live forecast from the v3 ensemble → `forecast_latest_v3.json` |
 | `verify.py` | Scores past forecasts against what actually happened |
+| `scripts/backtest.py` | Replays the pipeline over the test-split dates → `verification_log_backtest.csv` |
+| `webapp/` | Dashboard (forecast, verification and backtest tabs); `export_static.py` builds the static `site/` |
 | `run_v3.sh` | Full pipeline: trains 3 seeds, then evaluates |
 | `best_model_v3_seed*.pt` | The three v3 checkpoints (~19 MB each), each with a `.stats.json` normalisation file and a `.history.json` training log |
 | `historical_data.py`, `himawari_aws.py`, `combined_dataset.py` | Data collection and alignment |
@@ -122,6 +144,7 @@ bash scripts/runpod_setup.sh                          # download the training fr
 python scripts/build_npy_cache.py                     # build the 224×224 frame cache
 DEV=cuda bash run_v3.sh                               # train 3 seeds + validation evaluation
 python eval_v3.py --seeds 42 1337 2024 --split test   # held-out test numbers
+python scripts/backtest.py --report                   # backtest summary from the verification log
 ```
 
 A CUDA GPU is recommended. See [`RUNPOD.md`](RUNPOD.md) for sizing.
