@@ -45,7 +45,7 @@ v3 fixes each of these directly with a frozen shared encoder, cross-attention in
 
 ### Backtest: 147 unseen days
 
-`scripts/backtest.py` replays the full pipeline over the test split's dates (2026-04-21 → 2026-09-14). The model forecasts every hour from 08:00 to 14:00 SGT, using only the weather and satellite frames available at that moment, and each forecast is scored against what happened (`verification_log_backtest.csv`, summarised in `report/data/results.json`).
+`scripts/backtest.py` replays the full pipeline over the test split's dates (2026-04-21 → 2026-09-14). The model forecasts every hour from 08:00 to 14:00 SGT, using only the weather and satellite frames available at that moment, and each forecast is scored against what happened (`outputs/verification/verification_log_backtest.csv`, summarised in `report/data/results.json`).
 
 | | t+1h | t+2h | t+3h | All |
 |---|---:|---:|---:|---:|
@@ -57,11 +57,11 @@ v3 fixes each of these directly with a frozen shared encoder, cross-attention in
 - 1,029 forecast runs, 3,087 scored pairs. v3 has the lower daily mean error on 128 of 147 days.
 - Skill grows with horizon, which is what you'd expect if the model carries information about how cloud is evolving.
 - These are the same dates as the offline test split below, so this is the same held-out period scored end to end through the live code path, not an independent second test.
-- `verification_log_backtest_precision.csv` keeps the run under the old precision-weighted rule (MAE 63.9, coverage 71.7%) so the before/after comparison can be reproduced.
+- `outputs/verification/verification_log_backtest_precision.csv` keeps the run under the old precision-weighted rule (MAE 63.9, coverage 71.7%) so the before/after comparison can be reproduced.
 
 ### Held-out test split
 
-Chronological last 15%, n = 1,015; all models scored on identical rows (`analysis/v3_results_test_mixture.json`):
+Chronological last 15%, n = 1,015; all models scored on identical rows (`outputs/analysis/v3_results_test_mixture.json`):
 
 | Model | MAE (W/m²) | RMSE | R² | Skill vs smart persistence |
 |-------|-----:|-----:|-----:|-----:|
@@ -80,9 +80,9 @@ Chronological last 15%, n = 1,015; all models scored on identical rows (`analysi
 - Against LightGBM, the shipped ensemble is **63.60 vs 66.23 W/m², p = 0.054** (Diebold-Mariano test with HAC correction): **not significant at 5%**. The retired precision-weighted mean gave p = 0.040, but that rule's intervals were badly overconfident. On synthetic null data of this size the test fired 8% of the time at a nominal 5%, so even 0.040 was borderline. The fair summary is that v3 matches LightGBM on point accuracy, and it also produces a calibrated interval (91.2% coverage at a nominal 90%) that LightGBM doesn't.
 - No ablation was run for v3, so these results don't show that the satellite branch is what improves accuracy.
 - On the validation split the gap is larger (7.25 W/m², p = 0.0002). Checkpoints were selected on those rows, though, so that figure is optimistic, and the test numbers above are the ones to quote.
-- **Live check:** v3 forecast live from 2026-09-21 to 2026-10-16 (63 forecasts over 21 days, `verification_log_v3.csv`), using the old precision-weighted intervals. It was ahead of smart persistence at t+2h (98.1 vs 112.1 W/m²) and t+3h (115.9 vs 129.7). At t+1h the two were level (89.3 vs 85.7, paired p = 0.88). The backtest shows v3 ahead at t+1h, and the cause of the difference was never isolated, so nothing is claimed about live t+1h performance. Live runs stopped on 2026-10-28 in favour of the backtest.
+- **Live check:** v3 forecast live from 2026-09-21 to 2026-10-16 (63 forecasts over 21 days, `outputs/verification/verification_log_v3.csv`), using the old precision-weighted intervals. It was ahead of smart persistence at t+2h (98.1 vs 112.1 W/m²) and t+3h (115.9 vs 129.7). At t+1h the two were level (89.3 vs 85.7, paired p = 0.88). The backtest shows v3 ahead at t+1h, and the cause of the difference was never isolated, so nothing is claimed about live t+1h performance. Live runs stopped on 2026-10-28 in favour of the backtest.
 
-The files in `results/` describe the **retired v2 model**. Its numbers were never reproduced across machines (a CUDA run and a local CPU run disagree), so they're kept only as a record and shouldn't be quoted.
+The files in `outputs/v2_results/` describe the **retired v2 model**. Its numbers were never reproduced across machines (a CUDA run and a local CPU run disagree), so they're kept only as a record and shouldn't be quoted.
 
 ---
 
@@ -104,63 +104,75 @@ The files in `results/` describe the **retired v2 model**. Its numbers were neve
 
 ## Repository layout
 
-The core modules sit at the repository root and are run from there: they import each other and use root-relative paths, and the report build, web app and backtest read their outputs in place.
+```
+├── README.md  requirements-runpod.txt  run_v3.sh  winner.yaml  .env.example
+├── src/          model, training, evaluation, forecasting and data-collection modules
+├── scripts/      backtest, frame-cache, download and analysis utilities
+├── models/       the three v3 checkpoints with their normalisation and history files
+├── data/         committed tabular datasets (satellite imagery is downloaded, not committed)
+├── outputs/      forecast, verification logs, analysis, backtest forecasts, logs, v2 results
+├── notebooks/    the v2 notebook and the Colab extraction notebook
+├── docs/         RunPod guide and the Obsidian design notes
+├── webapp/       dashboard (Flask) and the static exporter
+└── site/         static export of the dashboard, served by Vercel
+```
 
-**Model and pipeline**
+Run everything from the repository root (`python src/<name>.py`, `python scripts/<name>.py`). Data and output paths are relative to the root.
 
-| Path | Purpose |
+**`src/`: model and pipeline**
+
+| File | Purpose |
 |------|---------|
 | `model.py` | Model definitions (v3 `WinnerModel` and legacy v2) and shared helpers |
-| `train.py` | v3 training: one seed per run, configured by `winner.yaml` |
-| `eval_v3.py` | Scores the seeds, the ensemble and the tabular baselines on identical rows, with a Diebold-Mariano test |
-| `predict_v3.py` | Live forecast from the v3 ensemble → `forecast_latest_v3.json` |
+| `train.py` | v3 training: one seed per run, configured by `winner.yaml`, writes `models/best_model_v3_seed<N>.pt` |
+| `eval_v3.py` | Scores the seeds, the ensemble and the tabular baselines on identical rows, with a Diebold-Mariano test → `outputs/analysis/` |
+| `predict_v3.py` | Live forecast from the v3 ensemble → `outputs/forecast_latest_v3.json` |
 | `predict.py` | v2 forecast entry point; kept because `predict_v3.py` reuses its live-data fetch and satellite checks |
 | `verify.py` | Scores past forecasts against what actually happened |
-| `run_v3.sh` | Full pipeline: trains 3 seeds, then evaluates |
-| `best_model_v3_seed*.pt` | The three v3 checkpoints (~19 MB each), each with a `.stats.json` normalisation file and a `.history.json` training log |
 
-**Data collection**
+**`src/`: data collection**
 
-| Path | Purpose |
+| File | Purpose |
 |------|---------|
 | `historical_data.py` | Open-Meteo hourly weather and GHI → `data/pv_dataset_sg.csv` |
 | `fetch_solcast.py` | PV ground-truth series (PVGIS + Open-Meteo/pvlib) → `data/pv_ground_truth_sg.csv` |
 | `himawari_aws.py` | Himawari scan download and Singapore crop from NOAA's AWS bucket |
 | `combined_dataset.py` | Aligns weather rows with satellite frames → the combined training CSV |
 | `current_data.py` | Live weather and satellite collectors used by `verify.py` |
-| `colab/himawari_extract.ipynb` | Colab notebook for bulk Himawari extraction |
 
-**Scripts** (`scripts/`, run from the repository root)
+**`scripts/`**
 
-| Path | Purpose |
+| File | Purpose |
 |------|---------|
-| `backtest.py` | Replays the pipeline over the test-split dates → `verification_log_backtest.csv` |
+| `backtest.py` | Replays the pipeline over the test-split dates → `outputs/verification/verification_log_backtest.csv` |
 | `build_npy_cache.py` | Builds the 224×224 frame cache |
 | `fetch_training_images.py` | Downloads only the scans the training set uses |
 | `runpod_setup.sh` | Bootstraps a fresh RunPod pod and fetches the training frames |
 | `compare_t1.py` | Decision rule for the t+1h v3-vs-persistence trial (live log) |
 | `regime_binning.py` | Backtest error broken down by sky regime, with bootstrap CIs |
 
-**Outputs and records**
+**`outputs/`**
 
 | Path | Purpose |
 |------|---------|
-| `data/*.csv` | Committed tabular datasets (satellite imagery is not committed) |
+| `forecast_latest_v3.json` | The last live forecast |
+| `verification/` | Scored forecasts: live v3 run, backtest, and backtest under the retired precision rule |
 | `analysis/` | v3 evaluation results on validation and test, incl. the shipped mixture-rule numbers |
 | `backtest/forecasts/` | The 1,029 backtest forecasts, one JSON per run |
-| `verification_log_*.csv` | Scored forecasts: live v3 run, backtest, and backtest under the retired precision rule |
 | `logs/` | Training, evaluation, download and backtest logs |
-| `results/` | Retired v2 metrics and plots (not reproducible; record only) |
-| `webapp/` | Dashboard (forecast, verification and backtest tabs); `export_static.py` builds `site/` |
-| `site/` | Static export of the dashboard, served by Vercel |
+| `v2_results/` | Retired v2 metrics and plots (not reproducible; record only) |
 
-**Docs**
+**Elsewhere**
 
 | Path | Purpose |
 |------|---------|
+| `models/best_model_v3_seed*.pt` | The three v3 checkpoints (~19 MB each), each with a `.stats.json` normalisation file and a `.history.json` training log |
+| `run_v3.sh` | Full pipeline: trains 3 seeds, then evaluates |
+| `notebooks/solar_pv_main.ipynb` | The original v2 notebook: exploratory analysis, baselines and ablations (record; the v2 checkpoints it loads are gone) |
+| `notebooks/himawari_extract.ipynb` | Colab notebook for bulk Himawari extraction |
+| `docs/RUNPOD.md` | Guide to training on a RunPod GPU instance (written for v2) |
 | `docs/notes/` | Obsidian vault with design notes, experiments, issues and limitations (written during v2) |
-| `RUNPOD.md` | Guide to training on a RunPod GPU instance |
-| `solar_pv_main.ipynb` | The original v2 notebook: exploratory analysis, baselines and ablations |
+| `webapp/` | Dashboard (forecast, verification and backtest tabs); `export_static.py` builds `site/` |
 
 ---
 
@@ -176,8 +188,9 @@ pip install -r requirements-runpod.txt
 **Live forecast** (best run between 09:00 and 14:00 SGT; the model is trained on daylight hours only):
 
 ```bash
-python predict_v3.py              # fetch live weather + satellite, write forecast_latest_v3.json
-python verify.py --report         # score past forecasts once the target hours have passed
+python src/predict_v3.py          # fetch live weather + satellite, write outputs/forecast_latest_v3.json
+python src/verify.py --forecast outputs/forecast_latest_v3.json --no-model-fallback \
+    --log outputs/verification/verification_log_v3.csv   # score it once the target hours have passed
 ```
 
 **Reproduce the results:**
@@ -186,11 +199,11 @@ python verify.py --report         # score past forecasts once the target hours h
 bash scripts/runpod_setup.sh                          # download the training frames (~2.4 GB)
 python scripts/build_npy_cache.py                     # build the 224×224 frame cache
 DEV=cuda bash run_v3.sh                               # train 3 seeds + validation evaluation
-python eval_v3.py --seeds 42 1337 2024 --split test   # held-out test numbers
+python src/eval_v3.py --seeds 42 1337 2024 --split test   # held-out test numbers
 python scripts/backtest.py --report                   # backtest summary from the verification log
 ```
 
-A CUDA GPU is recommended. See [`RUNPOD.md`](RUNPOD.md) for sizing.
+A CUDA GPU is recommended. See [`docs/RUNPOD.md`](docs/RUNPOD.md) for sizing.
 
 ## Tech stack
 Python · PyTorch · timm (EfficientNet) · pandas · NumPy · scikit-learn · LightGBM · SciPy · pvlib · OpenCV · Open-Meteo API · NOAA Himawari (AWS)
