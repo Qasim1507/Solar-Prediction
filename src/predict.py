@@ -13,9 +13,9 @@ Pipeline
 
 Usage
 -----
-    python predict.py
-    python predict.py --skip-fetch                    # reuse saved datanow/ files
-    python predict.py --model ./best_model.pt --csv ./data/combined_dataset.csv
+    python src/predict.py
+    python src/predict.py --skip-fetch                    # reuse saved datanow/ files
+    python src/predict.py --model ./best_model.pt --csv ./data/combined_dataset.csv
 
 Notes
 -----
@@ -314,7 +314,7 @@ if __name__ == "__main__":
     if not os.path.exists(MODEL_PATH):
         raise SystemExit(
             f"{MODEL_PATH} not found - the v2 model is retired.\n"
-            f"  Forecast with:  python predict_v3.py\n"
+            f"  Forecast with:  python src/predict_v3.py\n"
             f"  Or restore v2:  git checkout 160c45d -- best_model.pt "
             f"train_stats.json data/combined_dataset.csv")
 

@@ -1,7 +1,7 @@
 """
 train.py — v3 training: k_t target, 14 features, WinnerModel, MAE-selected.
 
-    python train.py --seed 42 --config winner.yaml
+    python src/train.py --seed 42 --config winner.yaml
 
 Differences from the v2 notebook run, in the order they matter:
 
@@ -29,7 +29,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from model import WinnerModel, TABULAR_COLS_V3
 from combined_dataset import FRAME_OFFSETS_MINUTES
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SAT_DIR = os.path.join(ROOT, "data/satellite_aws")
 NPY_DIR = os.path.join(ROOT, "data/satellite_aws_npy")
 FRAME_COLS = ["image_path"] + [f"image_path_prev{n}"

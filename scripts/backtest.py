@@ -37,7 +37,7 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
 os.chdir(ROOT)                  # both scripts use ./data, ./models/best_model_v3_*.pt
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "src"))
 
 import predict_v3               # noqa: E402
 import verify                   # noqa: E402

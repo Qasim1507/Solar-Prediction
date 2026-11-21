@@ -16,7 +16,7 @@ from combined_dataset import FRAME_OFFSETS_MINUTES
 
 def _load_env(path=".env"):
     """Minimal .env loader (no external dependency)."""
-    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), path)
+    env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), path)
     if os.path.exists(env_path):
         with open(env_path) as f:
             for line in f:

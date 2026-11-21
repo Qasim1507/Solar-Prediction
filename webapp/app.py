@@ -53,8 +53,8 @@ FRAMES = ["himawari_current.png", "himawari_prev1.png", "himawari_prev2.png"]
 HORIZONS = ["t+1h", "t+2h", "t+3h"]
 
 COMMANDS = {
-    "predict": ["predict_v3.py", "--out", "forecast_latest_v3.json"],
-    "verify": ["verify.py", "--forecast", "forecast_latest_v3.json",
+    "predict": ["src/predict_v3.py", "--out", "forecast_latest_v3.json"],
+    "verify": ["src/verify.py", "--forecast", "forecast_latest_v3.json",
                "--log", "verification_log_v3.csv", "--no-model-fallback"],
 }
 
@@ -64,7 +64,7 @@ PUBLISH = os.environ.get("PUBLISH", "1") != "0"
 # and anyone who can reach it may start jobs.
 ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN")
 
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "src"))
 app = Flask(__name__)
 
 

@@ -15,7 +15,7 @@ import pandas as pd
 from PIL import Image
 from concurrent.futures import ThreadPoolExecutor
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 from combined_dataset import FRAME_OFFSETS_MINUTES
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

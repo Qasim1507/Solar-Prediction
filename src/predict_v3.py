@@ -1,11 +1,11 @@
 """
 predict_v3.py — live GHI forecast from the v3 ensemble.
 
-    python predict_v3.py                  # fetch live data, then forecast
-    python predict_v3.py --skip-fetch     # reuse datanow/, no network
-    python predict_v3.py --seeds 42       # single seed instead of the ensemble
-    python predict_v3.py --no-sp-t1       # drop the persistence challenger
-    python predict_v3.py --as-of "2026-07-01 12:00" --out fc.json
+    python src/predict_v3.py                  # fetch live data, then forecast
+    python src/predict_v3.py --skip-fetch     # reuse datanow/, no network
+    python src/predict_v3.py --seeds 42       # single seed instead of the ensemble
+    python src/predict_v3.py --no-sp-t1       # drop the persistence challenger
+    python src/predict_v3.py --as-of "2026-07-01 12:00" --out fc.json
                                           # backtest: forecast from a past hour
 
 With --as-of, nothing is fetched. The lookback comes from the CSV, cut at the

@@ -2,8 +2,8 @@
 eval_v3.py — score the v3 seeds, their Gaussian ensemble, and the tabular
 baselines on EXACTLY the same rows.
 
-    python eval_v3.py --seeds 42 1337 2024                  # val  (optimistic)
-    python eval_v3.py --seeds 42 1337 2024 --split test     # test (unbiased)
+    python src/eval_v3.py --seeds 42 1337 2024                  # val  (optimistic)
+    python src/eval_v3.py --seeds 42 1337 2024 --split test     # test (unbiased)
 
 --split val reports on the rows checkpoint selection was performed on, so the
 deep models carry a selection advantage the tabular baselines do not. --split

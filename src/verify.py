@@ -34,10 +34,10 @@ evening that has nothing to do with cloud.
 
 Usage
 -----
-    python verify.py                 # verify the latest forecast, then report
-    python verify.py --report        # report on the existing log only
-    python verify.py --no-model-fallback
-    python verify.py --log verification_log_prefix.csv --report
+    python src/verify.py                 # verify the latest forecast, then report
+    python src/verify.py --report        # report on the existing log only
+    python src/verify.py --no-model-fallback
+    python src/verify.py --log verification_log_prefix.csv --report
 """
 
 import os

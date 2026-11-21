@@ -37,7 +37,7 @@ mkdir -p "$OUT" logs
 
 if [ "$MODE" = "full" ]; then
     echo "==> FULL download ${START} .. ${END} → ${OUT}  (~51 GB, ~3.5 h)"
-    python himawari_aws.py --start "$START" --end "$END" \
+    python src/himawari_aws.py --start "$START" --end "$END" \
         --out "$OUT" --workers "$WORKERS" 2>&1 | tee -a logs/himawari_download.log
 else
     echo "==> TRAINING-SET download → ${OUT}  (~2.4 GB, ~25 min)"

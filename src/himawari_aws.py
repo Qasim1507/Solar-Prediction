@@ -22,7 +22,7 @@ Outputs, under <out>/YYYY/MM/:
     himawari_sg_YYYYMMDD_HHMM00.png    RGB composite (bands_to_rgb)
 
 Usage (resumable — finished scans are skipped):
-    python himawari_aws.py --start 2024-01-01 --end 2026-09-15 --out data/satellite_aws --workers 32
+    python src/himawari_aws.py --start 2024-01-01 --end 2026-09-15 --out data/satellite_aws --workers 32
 
 Requires: numpy, pillow, requests, h5py
 """
