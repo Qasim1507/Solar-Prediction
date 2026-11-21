@@ -315,7 +315,7 @@ if __name__ == "__main__":
         raise SystemExit(
             f"{MODEL_PATH} not found - the v2 model is retired.\n"
             f"  Forecast with:  python src/predict_v3.py\n"
-            f"  Or restore v2:  git checkout 160c45d -- best_model.pt "
+            f"  Or restore v2:  git checkout 8bda1d0 -- best_model.pt "
             f"train_stats.json data/combined_dataset.csv")
 
     parser = argparse.ArgumentParser(description="Real-time GHI forecast")
