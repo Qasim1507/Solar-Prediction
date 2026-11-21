@@ -35,7 +35,7 @@ The v2 model had two EfficientNet-B2 encoders that were later unfrozen, and a sm
 - The gate collapsed to a near-constant blending weight, so it never adapted to conditions.
 - The deep model saw 11 features while the baselines saw 14.
 
-v3 fixes each of these directly with a frozen shared encoder, cross-attention in place of the gate, the same 14 features as the baselines, a k_t target, and checkpoint selection on MAE. Detailed notes on the v2 investigation are in [`Project/`](Project/).
+v3 fixes each of these directly with a frozen shared encoder, cross-attention in place of the gate, the same 14 features as the baselines, a k_t target, and checkpoint selection on MAE. Detailed notes on the v2 investigation are in [`docs/notes/`](docs/notes/).
 
 ---
 
@@ -116,7 +116,7 @@ The files in `results/` describe the **retired v2 model**. Its numbers were neve
 | `historical_data.py`, `himawari_aws.py`, `combined_dataset.py` | Data collection and alignment |
 | `scripts/build_npy_cache.py` | Builds the 224×224 frame cache from the command line |
 | `solar_pv_main.ipynb` | The original v2 notebook: exploratory analysis, baselines and ablations |
-| `Project/` | Obsidian vault with design notes, experiments, issues and limitations (written during v2) |
+| `docs/notes/` | Obsidian vault with design notes, experiments, issues and limitations (written during v2) |
 | `RUNPOD.md` | Guide to training on a RunPod GPU instance |
 
 ---
