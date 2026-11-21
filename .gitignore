@@ -1,5 +1,7 @@
 # Secrets — never commit
 .env
+.env.*
+!.env.example
 credentials.json
 
 # Data (large / regenerable)
@@ -14,6 +16,14 @@ swimseg/
 __pycache__/
 *.pyc
 .venv/
+.ipynb_checkpoints/
+.pytest_cache/
+
+# Editors
+.vscode/
+.idea/
+# Obsidian per-machine window state
+docs/notes/.obsidian/workspace.json
 
 # OS junk
 .DS_Store
@@ -25,5 +35,5 @@ dead_tiles.txt
 # Web app run archive
 webapp/runs/
 presentation/
-brag-output/
+brag-output*/
 report/
