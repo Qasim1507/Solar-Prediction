@@ -10,7 +10,7 @@ Two architectures live here:
       checkpoints on disk (best_model*.pt): single EfficientNetB2
       image encoder, simplified cross-attention, 2-input physics gate.
 
-  PhysicsGatedFusionModelV2 (v2) — trained by solar_pv_main.ipynb.
+  PhysicsGatedFusionModelV2 (v2) — trained by notebooks/solar_pv_main.ipynb.
       Dual CNN branches (global + RoI), 8-head cross-attention over 196
       patches, 4-input gate with optical flow.
 

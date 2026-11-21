@@ -46,6 +46,6 @@ else
 fi
 
 echo "==> Scans on disk: $(find "$OUT" -name '*.png' | wc -l)"
-echo "==> Next: open solar_pv_main.ipynb and run Section 0 onward."
+echo "==> Next: open notebooks/solar_pv_main.ipynb and run Section 0 onward."
 echo "    Section 3 builds the 224x224 .npy cache; Section 3.5 is skipped"
 echo "    automatically because swimseg_encoder.pt is in the repo."

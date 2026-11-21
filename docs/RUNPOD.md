@@ -1,5 +1,10 @@
 # Running this project on RunPod
 
+> Written for the v2 notebook workflow. For v3, the GPU sizing below still
+> applies, but training runs through `run_v3.sh` (see the README). Paths are
+> updated to the current layout; the v2 checkpoints it mentions are no longer
+> in the repository.
+
 ## What is and isn't in git
 
 The satellite imagery is **not** committed. The full archive is ~51 GB, which
@@ -8,7 +13,7 @@ re-downloadable from NOAA's public Himawari archive on AWS with no account and
 no credentials. A freshly downloaded scan is byte-identical to the one used for
 training (verified by SHA-256).
 
-In git: all code, `solar_pv_main.ipynb`, `data/*.csv` (3.6 MB),
+In git: all code, `notebooks/solar_pv_main.ipynb`, `data/*.csv` (3.6 MB),
 `best_model.pt`, and `swimseg_encoder.pt`.
 
 Not in git, rebuilt on the pod:
@@ -45,7 +50,7 @@ interruption or pod restart.
 
 ## 2. Train
 
-Open `solar_pv_main.ipynb` and run from Section 0. What each section does:
+Open `notebooks/solar_pv_main.ipynb` and run from Section 0. What each section does:
 
 | Section | What it does | Notes |
 |---|---|---|
@@ -57,7 +62,7 @@ Open `solar_pv_main.ipynb` and run from Section 0. What each section does:
 | 5–6 | DataLoaders, model | fast |
 | 7 | Training | 150 epochs, early stop at patience 20 |
 | 8 | Evaluation + ablation study | retrains 5 variants → `best_model_*.pt` |
-| 9 | Plots | writes into `results/` |
+| 9 | Plots | writes into `outputs/v2_results/` |
 
 Section 3.5 is why `swimseg_encoder.pt` is committed: without it you would also
 need the uncommitted 221 MB `swimseg/` dataset to pretrain the encoder.
@@ -96,12 +101,12 @@ pod stops. Training writes `best_model.pt` whenever validation improves, but
 that file still only exists on the pod.
 
 Push the outputs back to GitHub (they are small — 60 MB model plus configs,
-`train_stats.json`, and `results/`):
+`train_stats.json`, and `outputs/v2_results/`):
 
 ```bash
 git config user.name  "Qasim1507"
 git config user.email "nalawalaq@gmail.com"
-git add best_model.pt best_model*.config.json train_stats.json results/
+git add best_model.pt best_model*.config.json train_stats.json outputs/v2_results/
 git commit -m "Retrained on RunPod"
 git push
 ```

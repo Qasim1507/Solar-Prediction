@@ -6,7 +6,7 @@ credentials.json
 
 # Data (large / regenerable)
 # The satellite imagery is NOT committed: ~51 GB, and it is re-downloadable
-# from NOAA's public AWS archive with himawari_aws.py (see scripts/runpod_setup.sh).
+# from NOAA's public AWS archive with src/himawari_aws.py (see scripts/runpod_setup.sh).
 data/*
 !data/*.csv
 datanow/
